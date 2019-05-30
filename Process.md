@@ -15,3 +15,16 @@ which are as follows:
 - Had problem with initial idea so moved to this
 - Capstone has disassembly issue with offset
 - Have to figure out ELF internals in a lot of detail
+
+
+## Packer
+ - Find each function from symtab
+    - Only need those functions which have a correct preamble
+ - Replace the return value for each function with a call back into the loader
+ - Decrypt the code for each function after the preamble
+ - Replace the preamble with a call into the loader for decryption
+
+## Loader
+ - Extend section at the end
+ - Change the entry point for the executable
+ - Store 
