@@ -1,6 +1,10 @@
 from enum import Enum
 from struct import unpack
 
+"""
+ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
+"""
+
 
 class ELFDataType(Enum):
     """ The size in bytes of each data-type within the ELF structure """
