@@ -17,6 +17,7 @@ which are as follows:
 - Have to figure out ELF internals in a lot of detail
 - Don't know how to deal with PIE
 - Only works for 64 bit files
+- Problem finding spec for specific environments 
 
 
 ## Packer
