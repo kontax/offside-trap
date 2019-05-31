@@ -1,72 +1,9 @@
-from enum import Enum
+from elf_enums import *
 from struct import unpack
 
 """
 ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
 """
-
-
-class ELFDataType(Enum):
-    """ The size in bytes of each data-type within the ELF structure """
-    Elf64_Addr = 8  # Unsigned program address
-    Elf64_Off = 8  # Unsigned file offset
-    Elf64_Half = 2  # Unsigned medium integer
-    Elf64_Word = 4  # Unsigned integer
-    Elf64_Sword = 4  # Signed integer
-    Elf64_Xword = 8  # Unsigned long integer
-    Elf64_Sxword = 8  # Signed long integer
-    unsigned_char = 1  # Unsigned small integer
-
-
-class ELFClass(Enum):
-    """ Whether it's a 32 or 64 bit ELF file """
-    ELFCLASS32 = 1  # 32-bit objects
-    ELFCLASS64 = 2  # 64-bit objects
-
-
-class DataEncodings(Enum):
-    """ Whether the ELF file is in bit or little endian format """
-    ELFDATA2LSB = 1  # Little endian
-    ELFDATA2MSB = 2  # Big endian
-
-
-class OSABI(Enum):
-    """ The Application Binary Interface of the Operating System being used """
-    ELFOSABI_SYSV = 0  # SystemV ABI
-    ELFOSABI_HPUX = 1  # HP-UX
-    ELFOSABI_STANDALONE = 255  # Standalone / Embedded
-
-
-class ELFFileType(Enum):
-    """ The type of file the ELF is """
-    ET_NONE = 0  # No file type
-    ET_REL = 1  # Relocatable object file
-    ET_EXEC = 2  # Executable file
-    ET_DYN = 3  # Shared object file
-    ET_CORE = 4  # Core file
-    ET_LOOS = 0xFE00  # Environment - specific use
-    ET_HIOS = 0xFEFF
-    ET_LOPROC = 0xFF00  # Processor - specific use
-    ET_HIPROC = 0xFFFF
-
-
-class SectionType(Enum):
-    SHT_NULL = 0  # Marks an unused section header
-    SHT_PROGBITS = 1  # Contains information defined by the program
-    SHT_SYMTAB = 2  # Contains a linker symbol table
-    SHT_STRTAB = 3  # Contains a string table
-    SHT_RELA = 4  # Contains “Rela” type relocation entries
-    SHT_HASH = 5  # Contains a symbol hash table
-    SHT_DYNAMIC = 6  # Contains dynamic linking tables
-    SHT_NOTE = 7  # Contains note information
-    SHT_NOBITS = 8  # Contains uninitialized space; does not occupy any space in the file
-    SHT_REL = 9  # Contains “Rel” type relocation entries
-    SHT_SHLIB = 10  # Reserved
-    SHT_DYNSYM = 11  # Contains a dynamic loader symbol table
-    SHT_LOOS = 0x60000000  # Environment - specific use
-    SHT_HIOS = 0x6FFFFFFF
-    SHT_LOPROC = 0x70000000  # Processor - specific use
-    SHT_HIPROC = 0x7FFFFFFF
 
 
 class ELFIdent:
@@ -75,9 +12,9 @@ class ELFIdent:
         self.el_mag = header[0:4]
         assert(self.el_mag == b"\x7fELF")
         self.el_class = ELFClass(header[4])
-        self.el_data = DataEncodings(header[5])
+        self.el_data = ELFData(header[5])
         self.el_version = header[6]
-        self.el_osabi = OSABI(header[7])
+        self.el_osabi = ELFOSABI(header[7])
         self.el_abiversion = header[8]
         self.el_pad = header[9:15]
         self.el_nident = header[15]
@@ -105,6 +42,7 @@ class ELF:
         self.header_size = 64  # TODO: This is contained in the header as e_ehsize
         self.segments = []
         self.sections = []
+        self.symbols = []
         (
             self.e_ident,
             self.e_type,
@@ -126,13 +64,18 @@ class ELF:
         # Pull the data containing the segment names initially
         section_names_data = Section(data, self.e_shstrndx, self.e_shoff, self.e_shentsize).data
 
-        # Extract the segments
+        # Extract the Segments
         for i in range(self.e_phnum):
             self.segments.append(Segment(data, i, self.e_phoff, self.e_phentsize))
 
         # Extract the Sections
         for i in range(self.e_shnum):
             self.sections.append(Section(data, i, self.e_shoff, self.e_shentsize, section_names_data))
+
+        # Extract the Symbols
+        symtab = [x for x in self.sections if x.section_name == '.symtab'][0]
+        for i in range(int(symtab.sh_size / symtab.sh_entsize)):
+            self.symbols.append(Symbol(data, i, symtab.sh_offset, symtab.sh_entsize))
 
         print("DONE")
 
@@ -142,7 +85,7 @@ class ELF:
         return (
             ELFIdent(header[0]),  # e_ident
             ELFFileType(header[1]),  # e_type
-            header[2],  # e_machine
+            ELFMachine(header[2]),  # e_machine
             header[3],  # e_version
             header[4],  # e_entry
             header[5],  # e_phoff
@@ -255,7 +198,7 @@ class Section:
         header = unpack("IIQQQQIIQQ", segment_data)
         return (
             header[0],
-            header[1],  # TODO: This should be a SectionType
+            SectionType(header[1]),
             header[2],
             header[3],
             header[4],
@@ -287,7 +230,9 @@ class Symbol:
     Elf64_Xword     st_size;        /* Size of object (e.g., common) */
     """
 
-    def __init__(self, data):
+    def __init__(self, data, symbol_number, sh_offset, sh_entsize):
+        self.sh_offset = sh_offset
+        self.sh_entsize = sh_entsize
         (
             self.st_name,
             self.st_info,
@@ -295,7 +240,32 @@ class Symbol:
             self.st_shndx,
             self.st_value,
             self.st_size
-        ) = _parse_header(data)
+        ) = self._parse_header(data, symbol_number)
+
+    def _parse_header(self, data, symbol_number):
+
+        # sh_entsize is the header size for the symbol
+        offset = symbol_number * self.sh_entsize
+        start_offset = self.sh_offset + offset
+        end_offset = start_offset + self.sh_entsize
+
+        # Extract the header data from the full data
+        symbol_data = data[start_offset:end_offset]
+        header = unpack("IssHQQ", symbol_data)
+        return (
+            header[0],  # st_name
+            SymbolInfo(header[1]),  # st_info
+            ord(header[2]) & 0x3,  # st_other
+            header[3],  # st_shndx
+            header[4],  # st_value
+            header[5],  # st_size
+        )
+
+
+class SymbolInfo:
+    def __init__(self, st_info):
+        self.st_bind = SymbolBinding(ord(st_info) >> 4)
+        self.st_type = SymbolType(ord(st_info) & 0xF)
 
 
 if __name__ == '__main__':
