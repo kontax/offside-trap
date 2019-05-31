@@ -3,6 +3,7 @@ from struct import unpack
 
 
 class ELFDataType(Enum):
+    """ The size in bytes of each data-type within the ELF structure """
     Elf64_Addr = 8  # Unsigned program address
     Elf64_Off = 8  # Unsigned file offset
     Elf64_Half = 2  # Unsigned medium integer
@@ -11,6 +12,38 @@ class ELFDataType(Enum):
     Elf64_Xword = 8  # Unsigned long integer
     Elf64_Sxword = 8  # Signed long integer
     unsigned_char = 1  # Unsigned small integer
+
+
+class ELFClass(Enum):
+    """ Whether it's a 32 or 64 bit ELF file """
+    ELFCLASS32 = 1  # 32-bit objects
+    ELFCLASS64 = 2  # 64-bit objects
+
+
+class DataEncodings(Enum):
+    """ Whether the ELF file is in bit or little endian format """
+    ELFDATA2LSB = 1  # Little endian
+    ELFDATA2MSB = 2  # Big endian
+
+
+class OSABI(Enum):
+    """ The Application Binary Interface of the Operating System being used """
+    ELFOSABI_SYSV = 0  # SystemV ABI
+    ELFOSABI_HPUX = 1  # HP-UX
+    ELFOSABI_STANDALONE = 255  # Standalone / Embedded
+
+
+class ELFFileType(Enum):
+    """ The type of file the ELF is """
+    ET_NONE = 0  # No file type
+    ET_REL = 1  # Relocatable object file
+    ET_EXEC = 2  # Executable file
+    ET_DYN = 3  # Shared object file
+    ET_CORE = 4  # Core file
+    ET_LOOS = 0xFE00  # Environment - specific use
+    ET_HIOS = 0xFEFF
+    ET_LOPROC = 0xFF00  # Processor - specific use
+    ET_HIPROC = 0xFFFF
 
 
 class SectionType(Enum):
@@ -32,6 +65,20 @@ class SectionType(Enum):
     SHT_HIPROC = 0x7FFFFFFF
 
 
+class ELFIdent:
+    """ e_ident containing identification details of the ELF file """
+    def __init__(self, header):
+        self.el_mag = header[0:4]
+        assert(self.el_mag == b"\x7fELF")
+        self.el_class = ELFClass(header[4])
+        self.el_data = DataEncodings(header[5])
+        self.el_version = header[6]
+        self.el_osabi = OSABI(header[7])
+        self.el_abiversion = header[8]
+        self.el_pad = header[9:15]
+        self.el_nident = header[15]
+
+
 class ELF:
     """ File Header
     unsigned char   e_ident[16];    /* ELF identification */
@@ -51,7 +98,7 @@ class ELF:
     """
 
     def __init__(self, data):
-        self.header_size = 64
+        self.header_size = 64  # TODO: This is contained in the header as e_ehsize
         self.segments = []
         self.sections = []
         (
@@ -69,7 +116,11 @@ class ELF:
             self.e_shentsize,
             self.e_shnum,
             self.e_shstrndx
-        ) = self._parse_header(data)
+        ) = self._parse_header(data, self.header_size)
+        self.data = data
+
+        # Pull the data containing the segment names initially
+        section_names_data = Section(data, self.e_shstrndx, self.e_shoff, self.e_shentsize).data
 
         # Extract the segments
         for i in range(self.e_phnum):
@@ -77,11 +128,33 @@ class ELF:
 
         # Extract the Sections
         for i in range(self.e_shnum):
-            self.sections.append(Section(data, i, self.e_shoff, self.e_shentsize))
+            self.sections.append(Section(data, i, self.e_shoff, self.e_shentsize, section_names_data))
+
+        print("DONE")
 
     @staticmethod
-    def _parse_header(data):
-        return unpack("16sHHIQQQIHHHHHH", data[:64])
+    def _parse_header(data, header_size):
+        header = unpack("16sHHIQQQIHHHHHH", data[:header_size])
+        return (
+            ELFIdent(header[0]),  # e_ident
+            ELFFileType(header[1]),  # e_type
+            header[2],  # e_machine
+            header[3],  # e_version
+            header[4],  # e_entry
+            header[5],  # e_phoff
+            header[6],  # e_shoff
+            header[7],  # e_flags
+            header[8],  # e_ehsize
+            header[9],  # e_phentsize
+            header[10],  # e_phnum
+            header[11],  # e_shentsize
+            header[12],  # e_shnum
+            header[13],  # e_shstrndx
+        )
+
+    @staticmethod
+    def _extract_header_names(data):
+        return [x for x in data.decode("utf-8").split('\0')]
 
 
 class Segment:
@@ -108,9 +181,12 @@ class Segment:
             self.p_filesz,
             self.p_memsz,
             self.p_align
-        ) = self.parse_headers(data, segment_number)
+        ) = self._parse_header(data, segment_number)
 
-    def parse_headers(self, data, segment_number):
+        # Extract raw data
+        self.data = data[self.p_offset:self.p_offset+self.p_filesz]
+
+    def _parse_header(self, data, segment_number):
 
         # e_shentsize is the header size for the section
         offset = segment_number * self.e_phentsize
@@ -119,7 +195,7 @@ class Segment:
 
         # Extract the header data from the
         segment_data = data[start_offset:end_offset]
-        header = unpack("IIQQQQIIQQ", segment_data)
+        header = unpack("IIQQQQQQ", segment_data)
         return header
 
 
@@ -137,8 +213,8 @@ class Section:
     Elf64_Xword     sh_entsize;     /* Size of entries, if section has table */
     """
 
-    def __init__(self, data, section_number, e_shoff, e_shentsize):
-        self.e_shoff = e_shoff # Section header offset
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        self.e_shoff = e_shoff  # Section header offset
         self.e_shentsize = e_shentsize
         (
             self.sh_name,
@@ -151,9 +227,19 @@ class Section:
             self.sh_info,
             self.sh_addralign,
             self.sh_entsize
-        ) = self.parse_header(data, section_number)
+        ) = self._parse_header(data, section_number)
 
-    def parse_header(self, data, section_number):
+        # Get the name of the section
+        if header_names is not None:
+            self.section_name = self._get_c_string(header_names.decode('utf-8'), self.sh_name)
+
+        # Extract raw data
+        self.data = data[self.sh_offset:self.sh_offset+self.sh_size]
+
+    def __str__(self):
+        return f"{self.section_name} @ {hex(self.sh_offset)}"
+
+    def _parse_header(self, data, section_number):
 
         # e_shentsize is the header size for the section
         offset = section_number * self.e_shentsize
@@ -165,7 +251,7 @@ class Section:
         header = unpack("IIQQQQIIQQ", segment_data)
         return (
             header[0],
-            SectionType(header[1]),
+            header[1],  # TODO: This should be a SectionType
             header[2],
             header[3],
             header[4],
@@ -175,6 +261,16 @@ class Section:
             header[8],
             header[9],
         )
+
+    @staticmethod
+    def _get_c_string(data, offset):
+        out = []
+        i = offset
+        while data[i] != "\x00":
+            out.append(data[i])
+            i += 1
+
+        return ''.join(out)
 
 
 class Symbol:
@@ -195,4 +291,10 @@ class Symbol:
             self.st_shndx,
             self.st_value,
             self.st_size
-        ) = parse_header(data)
+        ) = _parse_header(data)
+
+
+if __name__ == '__main__':
+    with open('test/test', 'rb') as f:
+        test = f.read()
+    elffile = ELF(test)

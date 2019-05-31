@@ -15,6 +15,8 @@ which are as follows:
 - Had problem with initial idea so moved to this
 - Capstone has disassembly issue with offset
 - Have to figure out ELF internals in a lot of detail
+- Don't know how to deal with PIE
+- Only works for 64 bit files
 
 
 ## Packer
