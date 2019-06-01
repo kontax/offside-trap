@@ -28,44 +28,10 @@ def parse_header(data, entity_number, entsize, h_offset, hdr_struct):
     return unpack(hdr_struct, extract_data)
 
 
-# class ELFIdent:
-#
-#     @property
-#     def el_mag(self):
-#         """ Magic bytes """
-#         return self._el_mag
-#
-#     @el_mag.setter
-#     def el_mag(self, value):
-#         self._el_mag = value
-#
-#     """ e_ident containing identification details of the ELF file """
-#     def __init__(self, header):
-#         (
-#             self._el_mag,           # Magic bytes
-#             self.el_class,          # x86 or x64
-#             self.el_data,           # Big or little endian
-#             self.el_version,        # ELF version (always 1)
-#             self.el_osabi,          # OS Application Binary Interface
-#             self.el_abiversion,     # ABI version
-#             self.el_pad,            # Padding
-#             self.el_ident           # Size of ident
-#         ) = self._parse_header(header, 16, "4sbbbbb6sb")
-#         assert(self.el_mag == b"\x7fELF")
-#
-#     @staticmethod
-#     def _parse_header(data, header_size, hdr_struct):
-#         header = unpack(hdr_struct, data[:header_size])
-#         return (
-#             header[0],
-#             ELFClass(header[1]),
-#             ELFData(header[2]),
-#             header[3],
-#             ELFOSABI(header[4]),
-#             header[5],
-#             header[6],
-#             header[7]
-#         )
+def repack_header(data, hdr_offset, hdr_size, hdr, hdr_struct):
+    end_offset = hdr_offset + hdr_size
+    data[hdr_offset:end_offset] = pack(hdr_struct, *hdr)
+
 
 class ELFIdent:
     """ e_ident containing identification details of the ELF file """
@@ -80,10 +46,6 @@ class ELFIdent:
         self.el_abiversion = header[8]
         self.el_pad = header[9:15]
         self.el_nident = header[15]
-
-
-def repack_header(data, hdr_offset, hdr_size, hdr, hdr_struct):
-    data[hdr_offset:hdr_size] = pack(hdr_struct, *hdr)
 
 
 class ELF:
@@ -357,6 +319,7 @@ class Segment:
         self.hdr_struct = "IIQQQQQQ"
         self.e_phoff = e_phoff
         self.e_phentsize = e_phentsize
+        self.segment_number = segment_number
         (
             self._p_type,
             self._p_flags,
@@ -388,7 +351,8 @@ class Segment:
         )
 
     def _repack_header(self):
-        repack_header(self._full_data, self.p_offset, self.p_filesz, self.header, self.hdr_struct)
+        offset = self.e_phoff + (self.segment_number * self.e_phentsize)
+        repack_header(self._full_data, offset, self.e_phentsize, self.header, self.hdr_struct)
 
 
 class Section:
@@ -525,6 +489,7 @@ class Section:
         self.hdr_struct = "IIQQQQIIQQ"
         self.e_shoff = e_shoff  # Section header offset
         self.e_shentsize = e_shentsize
+        self.section_number = section_number
         (
             self._sh_name,
             self._sh_type,
@@ -564,7 +529,8 @@ class Section:
         )
 
     def _repack_header(self):
-        repack_header(self._full_data, self.sh_offset, self.sh_size, self.header, self.hdr_struct)
+        offset = self.e_shoff + (self.section_number * self.e_shentsize)
+        repack_header(self._full_data, offset, self.e_shentsize, self.header, self.hdr_struct)
 
 
 class Symbol:
@@ -650,7 +616,7 @@ class Symbol:
 
     def __init__(self, data, symbol_number, sh_offset, sh_entsize, header_names):
         self._full_data = data
-        self.hdr_struct = "IssHQQ"
+        self.hdr_struct = "IbbHQQ"
         self.symbol_number = symbol_number
         self.sh_offset = sh_offset
         self.sh_entsize = sh_entsize
@@ -677,23 +643,24 @@ class Symbol:
         return (
             header[0],  # st_name
             SymbolInfo(header[1]),  # st_info
-            ord(header[2]) & 0x3,  # st_other
+            header[2] & 0x3,  # st_other
             header[3],  # st_shndx
             header[4],  # st_value
             header[5],  # st_size
         )
 
     def _repack_header(self):
-        repack_header(self._full_data, self.sh_offset*self.symbol_number, self.st_size, self.header, self.hdr_struct)
+        offset = self.sh_offset + (self.symbol_number * self.sh_entsize)
+        repack_header(self._full_data, offset, self.sh_entsize, self.header, self.hdr_struct)
 
 
 class SymbolInfo:
     def __init__(self, st_info):
-        self.st_bind = SymbolBinding(ord(st_info) >> 4)
-        self.st_type = SymbolType(ord(st_info) & 0xF)
+        self.st_bind = SymbolBinding(st_info >> 4)
+        self.st_type = SymbolType(st_info & 0xF)
 
     def get_value(self):
-        return bytes(int(f"{self.st_bind.value:04b}{self.st_type.value:04b}", 2))
+        return int(f"{self.st_bind.value:04b}{self.st_type.value:04b}", 2)
 
 
 if __name__ == '__main__':
@@ -701,24 +668,30 @@ if __name__ == '__main__':
         test = f.read()
     elffile = ELF(test)
 
-    elffile.e_phnum = 15  # Was 11
-    elffile.e_shnum = 28  # Was 29
+    #elffile.e_phnum = 15  # Was 11
+    #elffile.e_shnum = 28  # Was 29
 
     text = elffile.sections[13]
     text.sh_name = 149  # was 148
-    text.sh_type = SectionType(9)  # was SHT_PROGBITS
+    text.sh_flags = 7
+    text.size = 660
+    #text.sh_type = SectionType(9)  # was SHT_PROGBITS
 
-    segment = elffile.segments[5]
-    segment.p_type = ProgramType(7)  # was PT_LOAD
-    segment.p_flags = 7  # was 6
+    #segment = elffile.segments[5]
+    #segment.p_type = ProgramType(7)  # was PT_LOAD
+    #segment.p_flags = 7  # was 6
 
-    symbol = elffile.symbols[46]
-    #symbol.st_info = SymbolInfo(b'\x11')  # was STB_WEAK and STT_NOTYPE
-    symbol.st_shndx = 26  # was 23
+    symbol = elffile.symbols[47]
+    symbol.st_info = SymbolInfo(17)  # was STB_GLOBAL and STT_FUNC
+    symbol.st_shndx = 26  # was 13
+    #symbol.st_name = 309  # was 310
 
     with open('test/packed', 'wb') as f:
         f.write(elffile.data)
 
     from elftools.elf.elffile import ELFFile
-    elffile = ELFFile(open('test/packed', 'rb'))
+    p_elffile = ELFFile(open('test/packed', 'rb'))
+    #p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
+    p_text = p_elffile.get_section_by_name('.text')
+    p_add = p_elffile.get_section_by_name('.symtab').get_symbol_by_name('add')[0]
     print("Done")
