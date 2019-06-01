@@ -192,6 +192,9 @@ class ProgramType(Enum):
     PT_HIOS = 0x6fffffff
     PT_LOPROC = 0x70000000  # processor specific range
     PT_HIPROC = 0x7fffffff
+    PT_GNU_EH_FRAME = 0x6474e550
+    PT_GNU_STACK = 0x6474e551
+    PT_GNU_RELRO = 0x6474e552
 
 
 """ SECTION HEADER """
