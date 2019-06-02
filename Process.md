@@ -26,6 +26,7 @@ which are as follows:
  - Find each function from symtab
     - Only need those functions which have a correct preamble
  - Replace the return value for each function with a call back into the loader
+    - Need function address and size as parameters
  - Decrypt the code for each function after the preamble
  - Replace the preamble with a call into the loader for decryption
 

@@ -32,9 +32,15 @@ int main(int argc, char** argv) {
     printf("9 - 3 = %d\n", b);
     printf("8 * 4 = %d\n", c);
 
-    do_nothing();
+    if(a == b) {
+        do_nothing();
+    } else {
+        print_const();
+    }
 
+    do_nothing();
     print_const();
+
 
     printf("That's all\n");
 
