@@ -18,6 +18,8 @@ which are as follows:
 - Don't know how to deal with PIE
 - Only works for 64 bit files
 - Problem finding spec for specific environments 
+- Finding and modifying all address references when adding segments/sections
+- Not sure what p_align needs to be
 
 
 ## Packer

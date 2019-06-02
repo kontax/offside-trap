@@ -178,7 +178,82 @@ class ELF:
         for i in range(int(symtab.sh_size / symtab.sh_entsize)):
             self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
-        print("DONE")
+    def append_segment(self, p_type: ProgramType, p_flags: int, data: bytearray):
+
+        # Get last segment address and size
+        last_segment = sorted(self.segments, key=lambda x: x.p_offset)[-1]
+        loc_in_file = last_segment.p_offset + last_segment.p_filesz
+
+        # Check out alignment stuff
+        p_align = 0x1000
+        padding_len = p_align - ((len(data) + self.e_phentsize) & 0xfff)
+        padding_data = bytearray(b'\0' * padding_len)
+        data[len(data):] = padding_data
+
+        # Add data to end of file
+        self._full_data[loc_in_file:loc_in_file] = data
+
+        # Increase segment count in main header
+        self.e_phnum += 1
+
+        # Create new segment
+        header = (
+            p_type,
+            p_flags,
+            last_segment.p_offset + last_segment.p_filesz,  # p_offset
+            last_segment.p_vaddr + last_segment.p_memsz,  # p_vaddr
+            last_segment.p_paddr + last_segment.p_memsz,  # p_paddr
+            len(data),  # p_filesz
+            len(data),  # p_memsz
+            p_align
+        )
+        new_segment = Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
+        packed = pack(new_segment.hdr_struct, *new_segment.header)
+
+        # Add header to end of header section
+        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
+        self._full_data[offset:offset] = packed
+
+        # Update the location of the section headers
+        self.e_shoff += self.e_phentsize + len(data)
+
+        # Move everything over - including all references to addresses - by offset of header
+        for s in self.sections:
+            s.e_shoff = self.e_shoff
+            if s.sh_addr > 0:
+                s.sh_addr += self.e_phentsize
+            if s.sh_offset > 0:
+                if s.sh_offset > offset:
+                    s.sh_offset += self.e_phentsize + len(data)
+                else:
+                    s.sh_offset += self.e_phentsize
+
+        for s in self.segments:
+            if s.p_offset > 0:
+                s.p_offset += self.e_phentsize
+            if s.p_vaddr > 0:
+                s.p_vaddr += self.e_phentsize
+            if s.p_paddr > 0:
+                s.p_paddr += self.e_phentsize
+
+        for s in self.symbols:
+            s.sh_offset += self.e_phentsize + len(data)
+            if s.st_value > 0:
+                s.st_value += self.e_phentsize + len(data)
+            # Get everything after offset
+            # Add self.e_phentsize to each address
+
+    def append_section_to_segment(self):
+        # Get end addr of segment / start addr of new segment
+        # Also check out alignment
+        # Push data after segment over, including references to addresses
+        # Push data after header over, including references to addresses
+        # Push data after text segment over, including references to addresses
+        # Insert data into segment
+        # Insert header into header section
+        # Insert section name into strtab and symtab(?) section
+        # Increase section count
+        pass
 
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
@@ -314,28 +389,42 @@ class Segment:
         self._p_align = value
         self._repack_header()
 
-    def __init__(self, data, segment_number, e_phoff, e_phentsize):
+    def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
         self._full_data = data
         self.hdr_struct = "IIQQQQQQ"
         self.e_phoff = e_phoff
         self.e_phentsize = e_phentsize
         self.segment_number = segment_number
-        (
-            self._p_type,
-            self._p_flags,
-            self._p_offset,
-            self._p_vaddr,
-            self._p_paddr,
-            self._p_filesz,
-            self._p_memsz,
-            self._p_align
-        ) = self._parse_header(data, segment_number)
+        if header is not None:
+            self._set_header(header)
+            #self._repack_header()
+        else:
+            (
+                self._p_type,
+                self._p_flags,
+                self._p_offset,
+                self._p_vaddr,
+                self._p_paddr,
+                self._p_filesz,
+                self._p_memsz,
+                self._p_align
+            ) = self._parse_header(data, segment_number)
 
         # Extract raw data
         self.data = data[self.p_offset:self.p_offset+self.p_filesz]
 
     def __str__(self):
         return f"{self.p_type} @ {hex(self.p_offset)}"
+
+    def _set_header(self, header):
+        self._p_type = header[0]
+        self._p_flags = header[1]
+        self._p_offset = header[2]
+        self._p_vaddr = header[3]
+        self._p_paddr = header[4]
+        self._p_filesz = header[5]
+        self._p_memsz = header[6]
+        self._p_align = header[7]
 
     def _parse_header(self, data, segment_number):
         header = parse_header(data, segment_number, self.e_phentsize, self.e_phoff, self.hdr_struct)
@@ -667,24 +756,8 @@ if __name__ == '__main__':
     with open('test/test', 'rb') as f:
         test = f.read()
     elffile = ELF(test)
-
-    #elffile.e_phnum = 15  # Was 11
-    #elffile.e_shnum = 28  # Was 29
-
-    text = elffile.sections[13]
-    text.sh_name = 149  # was 148
-    text.sh_flags = 7
-    text.size = 660
-    #text.sh_type = SectionType(9)  # was SHT_PROGBITS
-
-    #segment = elffile.segments[5]
-    #segment.p_type = ProgramType(7)  # was PT_LOAD
-    #segment.p_flags = 7  # was 6
-
-    symbol = elffile.symbols[47]
-    symbol.st_info = SymbolInfo(17)  # was STB_GLOBAL and STT_FUNC
-    symbol.st_shndx = 26  # was 13
-    #symbol.st_name = 309  # was 310
+    elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray(b'\xff'*800))
+    #elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray())
 
     with open('test/packed', 'wb') as f:
         f.write(elffile.data)
