@@ -49,7 +49,6 @@ decrypt:
     mov rdi, [rbx+table+0x28]             ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
     mov rcx, [rbx+table+0x20]             ; Length of function
-    push rcx                            ; Save length
     push rdi                            ; Save address
     push rax                            ; Save offset
 
