@@ -55,6 +55,7 @@ def create_table_entry(bytes_to_save, st_size, func_addr, i):
     entry[0:32] = bytes_to_save
     entry[32:40] = unpack("8B", pack("Q", st_size))
     entry[40:] = unpack("8B", pack("Q", func_addr))
+    #entry[40:] = bytearray(f"{i}a{i}b{i}c{i}d".encode('utf-8'))
 
     return entry
 
@@ -180,6 +181,12 @@ def main(filename):
 
     # Change OEP
     elf.e_entry = entry
+
+    # Make text section writeable
+    # TODO: This shouldn't be necessary
+    text = [x for x in elf.sections if x.section_name == '.text'][0]
+    seg = [x for x in elf.segments if x.p_offset < text.sh_offset <= x.p_offset + x.p_filesz][0]
+    seg.p_flags = 7
 
     # Save the packed elf
     with open(f"{filename}.packed", 'wb') as f:

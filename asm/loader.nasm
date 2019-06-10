@@ -46,7 +46,7 @@ decrypt:
     ; offset * (bytes for each entry) + address of table + offset within entry
     mov rbx, rax                        ; Offset within table
     imul rbx, 0x30                        ; Size of each entry in table
-    lea rdi, [rbx+table+0x28]             ; Original entry point of function
+    mov rdi, [rbx+table+0x28]             ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
     mov rcx, [rbx+table+0x20]             ; Length of function
     push rcx                            ; Save length
@@ -63,9 +63,9 @@ decrypt:
 
     ; Restore the original function bytes
     pop rax                             ; Offset of function
-    pop rsi                             ; Original function
+    pop rdi                             ; Original function
     mov rcx, bc                         ; Bytes to restore
-    mov rdi, [rbx+table]                ; Original bytes from function
+    lea rsi, [rbx+table]                ; Original bytes from function
 
     .restore:
         lodsb                           ; Load byte from table
