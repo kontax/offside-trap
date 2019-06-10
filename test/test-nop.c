@@ -27,6 +27,18 @@ int mul(int a, int b) {
     return a * b;
 }
 
+void no_args() {
+    char thing[27] = "abcdefghijklmnopqrstuvwxyz";
+    int i = 0;
+    while(i < 27) {
+        thing[i] = '0';
+        i++;
+    }
+    while(i >= 0) {
+        i--;
+    }
+}
+
 void do_nothing() {
     return;
 }
@@ -67,6 +79,7 @@ int main() {
         c = add(a, b);
     }
 
+    no_args();
     do_nothing();
 
     return 0;
