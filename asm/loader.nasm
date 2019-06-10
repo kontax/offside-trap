@@ -91,7 +91,7 @@ encrypt:
     push rsi
 
     ; Get references of function from table
-    mov rax, [rsp+0x10]                 ; Offset of function in table
+    mov rax, [rsp+0x28]                 ; Offset of function in table
 
     ; offset * (bytes for each entry) + address of table + offset within entry
     mov rbx, rax                        ; Offset within table
@@ -105,7 +105,7 @@ encrypt:
         lodsb                           ; Load a byte into AX
         xor al, 0xa5                    ; XOR it with the key
         stosb                           ; Store the byte back in the address
-        loop encrypt                    ; Loop and decrement RCX until 0
+        loop .encrypt                   ; Loop and decrement RCX until 0
 
     ; TODO: Overwrite the first few bytes with a call to the decryption routine
 
