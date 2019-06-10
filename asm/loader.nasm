@@ -41,13 +41,14 @@ decrypt:
     push rsi
 
     ; Get references of function from table
+    lea rbx, [table]
     and rax, 0xff
     ; offset * (bytes for each entry) + address of table + offset within entry
     mov rbx, rax                        ; Offset within table
-    imul rbx, 48                        ; Size of each entry in table
-    mov rdi, rbx+table+32             ; Original entry point of function
+    imul rbx, 0x30                        ; Size of each entry in table
+    lea rdi, [rbx+table+0x28]             ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
-    mov rcx, [rbx+table+16]             ; Length of function
+    mov rcx, [rbx+table+0x20]             ; Length of function
     push rcx                            ; Save length
     push rdi                            ; Save address
     push rax                            ; Save offset

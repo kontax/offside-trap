@@ -50,19 +50,20 @@ def calculate_address(st_value):
     return st_value + 0x000000
 
 
-def create_table_entry(bytes_to_save, st_size, func_addr):
+def create_table_entry(bytes_to_save, st_size, func_addr, i):
     entry = bytearray(48)
     entry[0:32] = bytes_to_save
     entry[32:40] = unpack("8B", pack("Q", st_size))
     entry[40:] = unpack("8B", pack("Q", func_addr))
+
     return entry
 
 
-def encrypt_and_store_first_bytes(elf, function):
+def encrypt_and_store_first_bytes(elf, function, i):
     # Save the original bytes for later
     bytes_to_save = get_bytes_to_save(elf, function)
     func_addr = calculate_address(function.st_value)
-    table_entry = create_table_entry(bytes_to_save, function.st_size, func_addr)
+    table_entry = create_table_entry(bytes_to_save, function.st_size, func_addr, i)
 
     # Encrypt the function's data
     start = function.st_value - PIE_OFFSET
@@ -143,8 +144,11 @@ def main(filename):
 
     # Calculate table based on the address and number of those functions
     table = []
+    i = 0  # TODO: Delete me
     for function in functions:
-        table.append(encrypt_and_store_first_bytes(elf, function))
+        table.append(encrypt_and_store_first_bytes(elf, function, i))
+        i += 1
+
 
     # Load the bytes for the table at the start of the loader
     table_array = []
