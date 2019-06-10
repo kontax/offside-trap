@@ -168,7 +168,7 @@ def main(filename):
     #  - encrypt
     entry = calculate_address(nop.st_value)
     decrypt = entry + 0x26
-    encrypt = entry + 0x64
+    encrypt = entry + 0x71
 
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0
