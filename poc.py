@@ -78,16 +78,26 @@ def encrypt_and_store_first_bytes(elf, function, i):
 
 def write_new_preamble(elf, index, function, decrypt, encrypt, nasm):
 
-    # Replace the assembly with the relevant values
-    asm = open(nasm, 'r').read()
-    asm = asm.replace("#FUNCTION#", f"{hex(calculate_address(function.st_value))}") \
-             .replace("#OFFSET#", f"{index}") \
-             .replace("#ENC_FUNC#", f"{hex(encrypt)}") \
-             .replace("#DEC_FUNC#", f"{hex(decrypt)}")
+    bytecode = get_preamble_bytes(decrypt, encrypt, function.st_value, index, nasm)
 
-    # Create a temp file with assembled instructions
+    # Replace the function preamble with the new bytes
+    start = function.st_value - PIE_OFFSET
+    end = start + BYTES_TO_SAVE
+    assert(BYTES_TO_SAVE == len(bytecode))
+    elf.data[start:end] = bytecode
+
+
+def get_preamble_bytes(decrypt, encrypt, func_address, index, nasm):
     tmp_file = "tmp/preamble"
     tmp_src = f"{tmp_file}.nasm"
+    # Replace the assembly with the relevant values
+    asm = open(nasm, 'r').read()
+    asm = asm.replace("#FUNCTION#", f"{hex(calculate_address(func_address))}") \
+        .replace("#OFFSET#", f"{index}") \
+        .replace("#ENC_FUNC#", f"{hex(encrypt)}") \
+        .replace("#DEC_FUNC#", f"{hex(decrypt)}")
+
+    # Create a temp file with assembled instructions
     with open(tmp_src, 'w') as f:
         f.write(asm)
 
@@ -96,15 +106,11 @@ def write_new_preamble(elf, index, function, decrypt, encrypt, nasm):
     # Get the assembled bytes
     bytecode = bytearray(open(tmp_file, 'rb').read())
 
-    # Replace the function preamble with the new bytes
-    start = function.st_value - PIE_OFFSET
-    end = start + BYTES_TO_SAVE
-    assert(BYTES_TO_SAVE == len(bytecode))
-    elf.data[start:end] = bytecode
-
     # Delete temp files
     os.remove(tmp_file)
     os.remove(tmp_src)
+
+    return bytecode
 
 
 def load_loader(elf, nop, loader_asm):
@@ -141,7 +147,7 @@ def main(filename):
 
     # Find address of all functions to be encrypted
     #functions = get_functions_for_encryption(elf)
-    functions = [x for x in elf.symbols if x.symbol_name == 'add' or x.symbol_name == 'mul' or x.symbol_name == 'sub']
+    functions = [x for x in elf.symbols if x.symbol_name == 'add' or x.symbol_name == 'mul' or x.symbol_name == 'sub' or x.symbol_name == 'no_args']
 
     # Calculate table based on the address and number of those functions
     table = []
@@ -150,17 +156,11 @@ def main(filename):
         table.append(encrypt_and_store_first_bytes(elf, function, i))
         i += 1
 
-
     # Load the bytes for the table at the start of the loader
     table_array = []
     for entry in table:
         table_array.append(','.join('0x{:02x}'.format(x) for x in entry))
     table_str = ','.join(x for x in table_array)
-
-    # Prepend the table string to the loader
-    loader = loader.replace("#TABLE#", table_str)
-    with open(f"{loader_asm}.new", 'w') as f:
-        f.write(loader)
 
     # Calculate address of various functions in loader:
     #  - entry
@@ -169,6 +169,15 @@ def main(filename):
     entry = calculate_address(nop.st_value)
     decrypt = entry + 0x26
     encrypt = entry + 0x71
+
+    # Load the default preamble bytes into the loader
+    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble.nasm')
+    loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble))
+
+    # Prepend the table string to the loader
+    loader = loader.replace("#TABLE#", table_str)
+    with open(f"{loader_asm}.new", 'w') as f:
+        f.write(loader)
 
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0

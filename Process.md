@@ -20,6 +20,7 @@ which are as follows:
 - Problem finding spec for specific environments 
 - Finding and modifying all address references when adding segments/sections
 - Not sure what p_align needs to be
+- Overwriting 0xcc (debugging symbol)
 
 
 ## Packer

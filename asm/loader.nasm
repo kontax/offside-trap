@@ -108,6 +108,25 @@ encrypt:
         loop .encrypt                   ; Loop and decrement RCX until 0
 
     ; TODO: Overwrite the first few bytes with a call to the decryption routine
+    ; Overwrite the first few bytes with the decryption preamble
+    mov rdi, [rbx+table+0x28]           ; Original entry point of function
+    mov rsi, preamble                   ; Get preamble bytes
+    ; mov rsi, rdi                 ; Get preamble bytes
+    mov rcx, bc                         ; Bytes to restore
+
+    cld
+    .preamble:
+        lodsb                           ; Load byte from table
+        stosb                           ; Store byte into original function
+        loop .preamble                  ; Decrement rcx for length of function
+
+    ; Replace offset and address within preamble
+    mov rax, [rsp+0x28]                 ; Offset of function in table
+    mov rbx, [rbx+table+0x28]           ; Original entry point of function
+    mov [rbx+0x1], al      ; Replace offset in preamble
+    mov [rbx+0xf], ax     ; Replace second reference to offset in preamble
+    ; mov rdi, [rbx]           ; Original entry point of function
+    mov [rbx+0x8], ebx    ; Replace entry point in function
 
     ; Reinstate the state of the program
     pop rsi
@@ -115,6 +134,7 @@ encrypt:
     pop rcx
     pop rbx
     pop rax
+    add rsp, 8                          ; Remove offset from stack
 
     ; Jump to the caller of the function just encrypted
     ret
@@ -137,3 +157,9 @@ table: db #TABLE#
                                         ; Once ELF has been sorted, the first few bytes should disappear
                                         ; May also remove the address of the function as this can be stored when
                                         ; the function is called originally
+
+preamble: db #PREAMBLE#
+                                        ; This is the bytecode of a generic preamble, used to re-encrypt the
+                                        ; function on exit. The bytes that are distinct to each function (ie.
+                                        ; OFFSET and FUNCTION) have been set randomly for each bit. These are
+                                        ; subsequently replaced in the encryption function.
