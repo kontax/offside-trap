@@ -268,6 +268,7 @@ class SymbolType(Enum):
     STT_FUNC = 2  # Function entry point
     STT_SECTION = 3  # Symbol is associated with a section
     STT_FILE = 4  # Source file associated with the object file
+    STT_TLS = 6  # Thread local data object
     STT_LOOS = 10  # Environment-specific use
     STT_HIOS = 12
     STT_LOPROC = 13  # Processor-specific use

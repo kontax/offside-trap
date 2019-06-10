@@ -1,9 +1,9 @@
 [bits 64]
 
-mov ax, 2       ; Offset in table                   ; 0x66 0xb8 0x02 0x00
-push 0x401100   ; Encryption address                ; 0x68 0x00 0x11 0x40 0x00
-push 0x4001ab   ; Return address                    ; 0x68 0xab 0x01 0x40 0x00
-push rax        ; Save state                        ; 0x50
-mov ax, 2       ; Offset in table                   ; 0x66 0xb8 0x02 0x00
-push 0x40113f   ; Address of decryption function    ; 0x68 0x3f 0x11 0x40 0x00
-ret                                                 ; 0xc3
+push #FUNCTION#     ; Return address (current function)
+push #OFFSET#       ; Offset in table (for enc func)
+push #ENC_FUNC#     ; Encryption address
+push rax            ; Save state
+mov ax, #OFFSET#    ; Offset in table
+push #DEC_FUNC#     ; Address of decryption function
+ret
