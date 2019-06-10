@@ -67,9 +67,6 @@ decrypt:
     mov rcx, bc                         ; Bytes to restore
     lea rsi, [rbx+table]                ; Original bytes from function
 
-    ; TODO: Not sure why this is necessary - stosb seems to skip the first value
-    mov byte [rdi], 0x55
-
     .restore:
         lodsb                           ; Load byte from table
         stosb                           ; Store byte into original function
