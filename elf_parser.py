@@ -178,6 +178,43 @@ class ELF:
         for i in range(int(symtab.sh_size / symtab.sh_entsize)):
             self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
+    def append_segment_2(self):
+        """
+        Adding a segment:
+            1. Find the segments that overlap or start at the end of the program header section
+            2. Verify that the data past the next segment has null values to overwrite
+            3. Find the null space
+            4. Shift the data 64 bytes into null space
+            5. Modify the addresses of the following:
+                a. The segment at the end of the program header
+                b. The program header end address
+                c. The end address of any overlapping segment (is this necessary?)
+            6. Size of program header needs to be increased
+            7. Number of segments needs to be increased
+
+            Note: Loadable segments may need to be stacked on top of each other to work
+        """
+        p_header = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
+        end_addr = p_header.p_offset + p_header.p_filesz + 64
+
+        # Below is wrong - I need to find each segment which gets overwritten after being moved 64 bytes,
+        # including any that are overlapping. Then the null space below should fall out of the end address
+        # of the final segment found.
+        overlapping_segments = [x for x in self.segments
+                                if x.p_offset <= end_addr <= x.p_offset + x.p_filesz]
+
+        # Find the null space
+        null_space = None
+        check = b'\x00'*64
+        start_addr = end_addr & 0xFF8 - 8
+        while null_space != check and start_addr:
+            start_addr += 8
+            null_space = self.data[start_addr:start_addr+64]
+
+
+
+
+
     def append_segment(self, p_type: ProgramType, p_flags: int, data: bytearray):
 
         # Get last segment address and size
