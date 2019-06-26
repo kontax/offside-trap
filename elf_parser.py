@@ -17,7 +17,6 @@ def parse_string_data(data, offset):
 
 
 def parse_header(data, entity_number, entsize, h_offset, hdr_struct):
-
     # entsize is the header size for the entity
     inner_offset = entity_number * entsize
     start_offset = h_offset + inner_offset
@@ -35,10 +34,11 @@ def repack_header(data, hdr_offset, hdr_size, hdr, hdr_struct):
 
 class ELFIdent:
     """ e_ident containing identification details of the ELF file """
+
     def __init__(self, header):
         self.data = header
         self.el_mag = header[0:4]
-        assert(self.el_mag == b"\x7fELF")
+        assert (self.el_mag == b"\x7fELF")
         self.el_class = ELFClass(header[4])
         self.el_data = ELFData(header[5])
         self.el_version = header[6]
@@ -104,6 +104,8 @@ class ELF:
     @e_phoff.setter
     def e_phoff(self, value):
         self._e_phoff = value
+        for seg in self.segments:
+            seg.e_phoff = value
         self._repack_header()
 
     @property
@@ -178,42 +180,167 @@ class ELF:
         for i in range(int(symtab.sh_size / symtab.sh_entsize)):
             self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
-    def append_segment_2(self):
+    def append_data_segment(self, data):
         """
-        Adding a segment:
-            1. Find the segments that overlap or start at the end of the program header section
-            2. Verify that the data past the next segment has null values to overwrite
-            3. Find the null space
-            4. Shift the data 64 bytes into null space
-            5. Modify the addresses of the following:
-                a. The segment at the end of the program header
-                b. The program header end address
-                c. The end address of any overlapping segment (is this necessary?)
-            6. Size of program header needs to be increased
-            7. Number of segments needs to be increased
-
-            Note: Loadable segments may need to be stacked on top of each other to work
+        1. Find the first empty space within the file
+            a. Gap with enough space
+            b. Lowest possible address
+            c. Is not contained within any other segments
+        2. Copy the program header to that space
+        3. Add the additional entry
+        4. Modify the elf headers
+        :return:
         """
-        p_header = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
-        end_addr = p_header.p_offset + p_header.p_filesz + 64
 
-        # Below is wrong - I need to find each segment which gets overwritten after being moved 64 bytes,
-        # including any that are overlapping. Then the null space below should fall out of the end address
-        # of the final segment found.
-        overlapping_segments = [x for x in self.segments
-                                if x.p_offset <= end_addr <= x.p_offset + x.p_filesz]
+        # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
+        program_headers = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR]
+        if len(program_headers) > 0:
+            p_header = program_headers[0]
+        else:
+            p_header = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+        size_needed = p_header.p_filesz + self.e_phentsize
+        gap_segments = self._get_gap_segments(size_needed)
 
-        # Find the null space
-        null_space = None
-        check = b'\x00'*64
-        start_addr = end_addr & 0xFF8 - 8
-        while null_space != check and start_addr:
-            start_addr += 8
-            null_space = self.data[start_addr:start_addr+64]
+        old_start = p_header.p_offset
+        old_end = p_header.p_offset + p_header.p_filesz
+        old_size = old_end - old_start
+
+        # Copy existing header and data
+        start = gap_segments[0].p_offset + gap_segments[0].p_filesz
+        self.data[start:start + old_size] = p_header.data
+
+        # Modify the header values
+        self.e_phoff = start
+        p_header.p_offset = start
+        p_header.p_vaddr = start
+        self.data[old_start:old_end] = b'\x00' * (old_end - old_start)
+
+        # Remap LOAD segment
+        # See above about statically linked files
+        if p_header.p_type == ProgramType.PT_PHDR:
+            load_segment = [x for x in self.segments
+                            if x.p_offset <= old_start <= x.p_offset + x.p_filesz
+                            and x.p_type == ProgramType.PT_LOAD][0]
+            load_segment.p_filesz += p_header.p_filesz
+            load_segment.p_memsz += p_header.p_memsz
+        else:
+            load_segment = p_header
 
 
+        # Create new segment
+        new_segment = self._create_segment(data)
+        packed = pack(new_segment.hdr_struct, *new_segment.header)
+        self.segments.append(new_segment)
 
+        # Add header to end of header section
+        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
+        self._full_data[offset:offset + self.e_phentsize] = packed
+        self.e_phnum += 1
+        p_header.p_filesz += self.e_phentsize
+        p_header.p_memsz += self.e_phentsize
 
+        load_segment.p_filesz += p_header.p_filesz
+        load_segment.p_memsz += p_header.p_memsz
+
+    def _create_segment(self, data):
+
+        last_segment = sorted(self.segments, key=lambda x: x.p_offset+x.p_filesz)[-1]
+        #end_addr = last_segment.p_offset + last_segment.p_filesz
+        end_addr = len(self.data)
+        addr_space = 0xffffffffffffffff
+
+        # Segment header values - offset at the specific alignment
+        p_type = ProgramType.PT_LOAD
+        p_flags = 0x5
+        p_align = 0x1000
+
+        # Make sure the segment is located at the correct alignment
+        bitmask = addr_space ^ abs((1 - p_align))
+        p_offset = (end_addr + p_align) & bitmask
+        p_vaddr = (last_segment.p_vaddr + last_segment.p_memsz + p_align) & bitmask
+        p_paddr = (last_segment.p_paddr + last_segment.p_memsz + p_align) & bitmask
+
+        # Add padding to the alignment
+        pad_len = p_offset - end_addr
+        self.data[end_addr:p_offset] = b'\x00' * pad_len
+
+        # Add data to elf
+        self.data[p_offset:p_offset] = data
+
+        header = (
+            p_type,
+            p_flags,
+            p_offset,
+            p_vaddr,
+            p_paddr,
+            len(data),  # p_filesz
+            len(data),  # p_memsz
+            p_align
+        )
+        return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
+
+    def _get_gap_segments(self, size_needed):
+
+        # If there is a gap after the program header large enough, then that is fine
+
+        sorted_segments = [x for x in self.segments if x.p_filesz > 0]
+        sorted_segments.sort(key=lambda x: x.p_offset)
+        gap_segments = None
+        for segment in sorted_segments:
+            segment_end_addr = segment.p_offset + segment.p_filesz
+            # Find the closest segment
+            index = sorted_segments.index(segment)
+            closest_segment = next(iter(sorted(
+                [x for x in sorted_segments[index:]
+                 if x.p_offset >= segment.p_offset + segment.p_filesz],
+                key=lambda x: x.p_offset)), None)
+
+            if closest_segment is None:
+                continue
+
+            # Check if the gap between is big enough
+            if closest_segment.p_offset - segment_end_addr < size_needed:
+                continue
+
+            # Make sure no other segments are in the way
+            if self.is_segment_overlapped(segment, closest_segment):
+                continue
+
+            # First time then save
+            if gap_segments is None:
+                gap_segments = (segment, closest_segment)
+                continue
+
+            # Get the one with the lowest address
+            if closest_segment.p_offset < gap_segments[1].p_offset:
+                gap_segments = (segment, closest_segment)
+
+        # Ensure we've found a large enough gap
+        assert (gap_segments is not None)
+
+        return gap_segments
+
+    def is_segment_overlapped(self, first_segment, next_segment):
+        start = first_segment.p_offset + first_segment.p_filesz
+        end = next_segment.p_offset
+        for segment in self.segments:
+
+            # Don't need to check the current segments
+            if segment is first_segment or segment is next_segment:
+                continue
+
+            segment_end = segment.p_offset + segment.p_filesz
+
+            # Check segments within the gap
+            if start <= segment.p_offset <= end \
+                    or start <= segment_end <= end:
+                return True
+
+            # Check segments overlapping the gap entirely
+            if segment.p_offset <= start and segment_end >= end:
+                return True
+
+        return False
 
     def append_segment(self, p_type: ProgramType, p_flags: int, data: bytearray):
 
@@ -280,18 +407,6 @@ class ELF:
             # Get everything after offset
             # Add self.e_phentsize to each address
 
-    def append_section_to_segment(self):
-        # Get end addr of segment / start addr of new segment
-        # Also check out alignment
-        # Push data after segment over, including references to addresses
-        # Push data after header over, including references to addresses
-        # Push data after text segment over, including references to addresses
-        # Insert data into segment
-        # Insert header into header section
-        # Insert section name into strtab and symtab(?) section
-        # Increase section count
-        pass
-
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
         header = unpack(hdr_struct, data[:header_size])
@@ -331,6 +446,7 @@ class Segment:
     Elf64_Xword     p_memsz;        /* Size of segment in memory */
     Elf64_Xword     p_align;        /* Alignment of segment */
     """
+
     @property
     def header(self):
         """ Gets the tuple containing the values within the header of the entity """
@@ -434,7 +550,7 @@ class Segment:
         self.segment_number = segment_number
         if header is not None:
             self._set_header(header)
-            #self._repack_header()
+            # self._repack_header()
         else:
             (
                 self._p_type,
@@ -448,7 +564,7 @@ class Segment:
             ) = self._parse_header(data, segment_number)
 
         # Extract raw data
-        self.data = data[self.p_offset:self.p_offset+self.p_filesz]
+        self.data = data[self.p_offset:self.p_offset + self.p_filesz]
 
     def __str__(self):
         return f"{self.p_type} @ {hex(self.p_offset)}"
@@ -494,6 +610,7 @@ class Section:
     Elf64_Xword     sh_addralign;   /* Address alignment boundary */
     Elf64_Xword     sh_entsize;     /* Size of entries, if section has table */
     """
+
     @property
     def header(self):
         """ Gets the tuple containing the values within the header of the entity """
@@ -634,7 +751,7 @@ class Section:
             self.section_name = parse_string_data(header_names.decode('utf-8'), self.sh_name)
 
         # Extract raw data
-        self.data = data[self.sh_offset:self.sh_offset+self.sh_size]
+        self.data = data[self.sh_offset:self.sh_offset + self.sh_size]
 
     def __str__(self):
         return f"{self.section_name} @ {hex(self.sh_offset)}"
@@ -668,6 +785,7 @@ class Symbol:
     Elf64_Addr      st_value;       /* Symbol value */
     Elf64_Xword     st_size;        /* Size of object (e.g., common) */
     """
+
     @property
     def header(self):
         """ Gets the tuple containing the values within the header of the entity """
@@ -793,15 +911,17 @@ if __name__ == '__main__':
     with open('test/test', 'rb') as f:
         test = f.read()
     elffile = ELF(test)
-    elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray(b'\xff'*800))
-    #elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray())
+    # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray(b'\xff' * 800))
+    # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray())
+    elffile.append_data_segment(bytearray(b'\xff' * 800))
 
     with open('test/packed', 'wb') as f:
         f.write(elffile.data)
 
     from elftools.elf.elffile import ELFFile
+
     p_elffile = ELFFile(open('test/packed', 'rb'))
-    #p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
+    # p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
     p_text = p_elffile.get_section_by_name('.text')
     p_add = p_elffile.get_section_by_name('.symtab').get_symbol_by_name('add')[0]
     print("Done")
