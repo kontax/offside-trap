@@ -191,7 +191,7 @@ def main(filename):
     load_loader(elf, nop, f"{loader_asm}.new")
 
     # Change OEP
-    #elf.e_entry = entry_addr
+    elf.e_entry = entry_addr
 
     # Make text section writeable
     # TODO: This shouldn't be necessary
