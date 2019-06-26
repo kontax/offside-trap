@@ -13,6 +13,12 @@ class ELFDataType(Enum):
     unsigned_char = 0  # Unsigned small integer
 
 
+class ELFLinkingMethod(Enum):
+    """ Whether the file is statically or dynamically linked """
+    STATIC = 0
+    DYNAMIC = 1
+
+
 """ ELF HEADER """
 
 

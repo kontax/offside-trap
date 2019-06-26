@@ -143,6 +143,11 @@ class ELF:
         """ Gets the virtual base of the binary (eg. 0x4000000 if no-pie) """
         return self._virtual_base
 
+    @property
+    def linking_method(self):
+        """ Gets how the ELF has been linked - dynamically or statically """
+        return self._linking_method
+
     def __init__(self, data):
         self.data = bytearray(data)
         self._full_data = self.data
@@ -179,12 +184,15 @@ class ELF:
         for i in range(self.e_shnum):
             self.sections.append(Section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data))
 
+        # Whether the ELF is statically or dynamically linked
+        self._linking_method = ELFLinkingMethod(len([x for x in self.sections if x.section_name == '.interp']))
+
         # Extract the Symbols
         symtab = next(iter([x for x in self.sections if x.section_name == '.symtab']), None)
         strtab = next(iter([x for x in self.sections if x.section_name == '.strtab']), None)
 
         # Take stripped binaries into account
-        if symtab != None:
+        if symtab is not None:
             for i in range(int(symtab.sh_size / symtab.sh_entsize)):
                 self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
@@ -192,13 +200,9 @@ class ELF:
 
     def append_data_segment(self, data):
         """
-        1. Find the first empty space within the file
-            a. Gap with enough space
-            b. Lowest possible address
-            c. Is not contained within any other segments
-        2. Copy the program header to that space
-        3. Add the additional entry
-        4. Modify the elf headers
+        Appends a new segment with the size of the data specified, modifying any relevant pointers required.
+
+        :param data:
         :return:
         """
 
@@ -208,14 +212,9 @@ class ELF:
         old_size = old_end - old_start
         old_data = self.data[old_start:old_end]
 
-        # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
-        program_headers = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR]
-        if len(program_headers) > 0:
-            p_header_segment = program_headers[0]
-        else:
-            p_header_segment = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+        # Get any gaps large enough to move the Program Header into
         size_needed = old_size + self.e_phentsize
-        gap_segments = self._get_gap_segments(size_needed)
+        gap_segments = self._get_gap_segment(size_needed)
 
         # Copy existing header and data
         start = gap_segments[0].p_offset + gap_segments[0].p_filesz
@@ -223,24 +222,33 @@ class ELF:
 
         # Modify the header values
         self.e_phoff = start
-        if p_header_segment.p_type == ProgramType.PT_PHDR:
-            p_header_segment.p_offset = start
-            p_header_segment.p_vaddr = self.virtual_base + start
+
+        # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
+        if self.linking_method == ELFLinkingMethod.DYNAMIC:
+            phdr = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
+            phdr.p_offset = start
+            phdr.p_vaddr = self.virtual_base + start
+
+            # Get the PT_LOAD segment which loads the program header into memory
+            ph_load_segment = [x for x in self.segments
+                               if x.p_offset <= old_start <= x.p_offset + x.p_filesz
+                               and x.p_type == ProgramType.PT_LOAD][0]
+            ph_load_segment.p_filesz += phdr.p_filesz
+            ph_load_segment.p_memsz += phdr.p_memsz
+
+            # Increase size of the PT_PHDR segment
+            phdr.p_filesz += self.e_phentsize
+            phdr.p_memsz += self.e_phentsize
+        else:
+            phdr = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+            ph_load_segment = phdr
+
+        # Null out the old header
+        # This isn't strictly necessary but good to clean up
         self.data[old_start:old_end] = b'\x00' * (old_end - old_start)
 
-        # Remap LOAD segment
-        # See above about statically linked files
-        if p_header_segment.p_type == ProgramType.PT_PHDR:
-            load_segment = [x for x in self.segments
-                            if x.p_offset <= old_start <= x.p_offset + x.p_filesz
-                            and x.p_type == ProgramType.PT_LOAD][0]
-            load_segment.p_filesz += p_header_segment.p_filesz
-            load_segment.p_memsz += p_header_segment.p_memsz
-        else:
-            load_segment = p_header_segment
-
         # Create new segment
-        new_segment = self._create_segment(data)
+        new_segment = self._create_new_segment(data)
         packed = pack(new_segment.hdr_struct, *new_segment.header)
         self.segments.append(new_segment)
 
@@ -248,22 +256,20 @@ class ELF:
         offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
         self._full_data[offset:offset + self.e_phentsize] = packed
         self.e_phnum += 1
-        p_header_segment.p_filesz += self.e_phentsize
-        p_header_segment.p_memsz += self.e_phentsize
 
-        load_segment.p_filesz += p_header_segment.p_filesz
-        load_segment.p_memsz += p_header_segment.p_memsz
+        ph_load_segment.p_filesz += phdr.p_filesz
+        ph_load_segment.p_memsz += phdr.p_memsz
 
-    def _create_segment(self, data):
+    def _create_new_segment(self, data):
 
-        last_segment = sorted(self.segments, key=lambda x: x.p_offset+x.p_filesz)[-1]
+        last_segment = sorted(self.segments, key=lambda x: x.p_offset + x.p_filesz)[-1]
         end_addr = len(self.data)
-        addr_space = 0xffffffffffffffff
 
         # Segment header values - offset at the specific alignment
         p_type = ProgramType.PT_LOAD
         p_flags = 0x5
         p_align = 0x1000
+        addr_space = 0xffffffffffffffff
 
         # Make sure the segment is located at the correct alignment
         bitmask = addr_space ^ abs((1 - p_align))
@@ -290,15 +296,14 @@ class ELF:
         )
         return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
 
-    def _get_gap_segments(self, size_needed):
+    def _get_gap_segment(self, size_needed):
 
-        # If there is a gap after the program header large enough, then that is fine
-
+        # TODO: If there is a gap after the program header large enough, then that is fine
         sorted_segments = [x for x in self.segments if x.p_filesz > 0]
         sorted_segments.sort(key=lambda x: x.p_offset)
-        gap_segments = None
+        gap_segment = None
         for segment in sorted_segments:
-            segment_end_addr = segment.p_offset + segment.p_filesz
+
             # Find the closest segment
             index = sorted_segments.index(segment)
             closest_segment = next(iter(sorted(
@@ -310,48 +315,27 @@ class ELF:
                 continue
 
             # Check if the gap between is big enough
+            segment_end_addr = segment.p_offset + segment.p_filesz
             if closest_segment.p_offset - segment_end_addr < size_needed:
                 continue
 
             # Make sure no other segments are in the way
-            if self._is_segment_overlapped(segment, closest_segment):
+            if segment.is_segment_gap_overlapped(closest_segment, self.segments):
                 continue
 
             # First time then save
-            if gap_segments is None:
-                gap_segments = (segment, closest_segment)
+            if gap_segment is None:
+                gap_segment = (segment, closest_segment)
                 continue
 
             # Get the one with the lowest address
-            if closest_segment.p_offset < gap_segments[1].p_offset:
-                gap_segments = (segment, closest_segment)
+            if closest_segment.p_offset < gap_segment[1].p_offset:
+                gap_segment = (segment, closest_segment)
 
         # Ensure we've found a large enough gap
-        assert (gap_segments is not None)
+        assert (gap_segment is not None)
 
-        return gap_segments
-
-    def _is_segment_overlapped(self, first_segment, next_segment):
-        start = first_segment.p_offset + first_segment.p_filesz
-        end = next_segment.p_offset
-        for segment in self.segments:
-
-            # Don't need to check the current segments
-            if segment is first_segment or segment is next_segment:
-                continue
-
-            segment_end = segment.p_offset + segment.p_filesz
-
-            # Check segments within the gap
-            if start <= segment.p_offset <= end \
-                    or start <= segment_end <= end:
-                return True
-
-            # Check segments overlapping the gap entirely
-            if segment.p_offset <= start and segment_end >= end:
-                return True
-
-        return False
+        return gap_segment
 
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
@@ -511,6 +495,38 @@ class Segment:
 
         # Extract raw data
         self.data = data[self.p_offset:self.p_offset + self.p_filesz]
+
+    def is_segment_gap_overlapped(self, closest_segment, segments):
+        """
+        Checks whether a gap between this segment and the next closest one is overlapped by any other segment in
+        a list. This covers situations whereby a segment either completely overlaps the gap, ends in the middle,
+        or starts in the middle.
+
+        :param closest_segment: The segment next to this with a gap of null bytes between them.
+        :param segments: A list of segments to check through
+        :return: True if there is an overlapping segment, otherwise false.
+        """
+        gap_start = self.p_offset + self.p_filesz  # The end of the current segment
+        gap_end = closest_segment.p_offset  # The start of the next segment
+
+        for segment in segments:
+
+            # Don't need to check the current segments
+            if segment is self or segment is closest_segment:
+                continue
+
+            segment_end = segment.p_offset + segment.p_filesz
+
+            # Check segments within the gap
+            if gap_start <= segment.p_offset <= gap_end \
+                    or gap_start <= segment_end <= gap_end:
+                return True
+
+            # Check segments overlapping the gap entirely
+            if segment.p_offset <= gap_start and segment_end >= gap_end:
+                return True
+
+        return False
 
     def __str__(self):
         return f"{self.p_type} @ {hex(self.p_offset)}"
