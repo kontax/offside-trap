@@ -180,10 +180,13 @@ class ELF:
             self.sections.append(Section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data))
 
         # Extract the Symbols
-        symtab = [x for x in self.sections if x.section_name == '.symtab'][0]
-        strtab = [x for x in self.sections if x.section_name == '.strtab'][0]
-        for i in range(int(symtab.sh_size / symtab.sh_entsize)):
-            self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
+        symtab = next(iter([x for x in self.sections if x.section_name == '.symtab']), None)
+        strtab = next(iter([x for x in self.sections if x.section_name == '.strtab']), None)
+
+        # Take stripped binaries into account
+        if symtab != None:
+            for i in range(int(symtab.sh_size / symtab.sh_entsize)):
+                self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
         self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
 
@@ -199,19 +202,20 @@ class ELF:
         :return:
         """
 
+        # Store old program header values
+        old_start = self.e_phoff
+        old_end = self.e_phoff + self.e_phnum * self.e_phentsize
+        old_size = old_end - old_start
+        old_data = self.data[old_start:old_end]
+
         # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
         program_headers = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR]
         if len(program_headers) > 0:
             p_header_segment = program_headers[0]
         else:
             p_header_segment = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
-        size_needed = p_header_segment.p_filesz + self.e_phentsize
+        size_needed = old_size + self.e_phentsize
         gap_segments = self._get_gap_segments(size_needed)
-
-        old_start = self.e_phoff
-        old_end = self.e_phoff + self.e_phnum * self.e_phentsize
-        old_size = old_end - old_start
-        old_data = self.data[old_start:old_end]
 
         # Copy existing header and data
         start = gap_segments[0].p_offset + gap_segments[0].p_filesz
@@ -253,7 +257,6 @@ class ELF:
     def _create_segment(self, data):
 
         last_segment = sorted(self.segments, key=lambda x: x.p_offset+x.p_filesz)[-1]
-        #end_addr = last_segment.p_offset + last_segment.p_filesz
         end_addr = len(self.data)
         addr_space = 0xffffffffffffffff
 
@@ -311,7 +314,7 @@ class ELF:
                 continue
 
             # Make sure no other segments are in the way
-            if self.is_segment_overlapped(segment, closest_segment):
+            if self._is_segment_overlapped(segment, closest_segment):
                 continue
 
             # First time then save
@@ -328,7 +331,7 @@ class ELF:
 
         return gap_segments
 
-    def is_segment_overlapped(self, first_segment, next_segment):
+    def _is_segment_overlapped(self, first_segment, next_segment):
         start = first_segment.p_offset + first_segment.p_filesz
         end = next_segment.p_offset
         for segment in self.segments:
@@ -349,71 +352,6 @@ class ELF:
                 return True
 
         return False
-
-    def append_segment(self, p_type: ProgramType, p_flags: int, data: bytearray):
-
-        # Get last segment address and size
-        last_segment = sorted(self.segments, key=lambda x: x.p_offset)[-1]
-        loc_in_file = last_segment.p_offset + last_segment.p_filesz
-
-        # Check out alignment stuff
-        p_align = 0x1000
-        padding_len = p_align - ((len(data) + self.e_phentsize) & 0xfff)
-        padding_data = bytearray(b'\0' * padding_len)
-        data[len(data):] = padding_data
-
-        # Add data to end of file
-        self._full_data[loc_in_file:loc_in_file] = data
-
-        # Increase segment count in main header
-        self.e_phnum += 1
-
-        # Create new segment
-        header = (
-            p_type,
-            p_flags,
-            last_segment.p_offset + last_segment.p_filesz,  # p_offset
-            last_segment.p_vaddr + last_segment.p_memsz,  # p_vaddr
-            last_segment.p_paddr + last_segment.p_memsz,  # p_paddr
-            len(data),  # p_filesz
-            len(data),  # p_memsz
-            p_align
-        )
-        new_segment = Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
-        packed = pack(new_segment.hdr_struct, *new_segment.header)
-
-        # Add header to end of header section
-        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
-        self._full_data[offset:offset] = packed
-
-        # Update the location of the section headers
-        self.e_shoff += self.e_phentsize + len(data)
-
-        # Move everything over - including all references to addresses - by offset of header
-        for s in self.sections:
-            s.e_shoff = self.e_shoff
-            if s.sh_addr > 0:
-                s.sh_addr += self.e_phentsize
-            if s.sh_offset > 0:
-                if s.sh_offset > offset:
-                    s.sh_offset += self.e_phentsize + len(data)
-                else:
-                    s.sh_offset += self.e_phentsize
-
-        for s in self.segments:
-            if s.p_offset > 0:
-                s.p_offset += self.e_phentsize
-            if s.p_vaddr > 0:
-                s.p_vaddr += self.e_phentsize
-            if s.p_paddr > 0:
-                s.p_paddr += self.e_phentsize
-
-        for s in self.symbols:
-            s.sh_offset += self.e_phentsize + len(data)
-            if s.st_value > 0:
-                s.st_value += self.e_phentsize + len(data)
-            # Get everything after offset
-            # Add self.e_phentsize to each address
 
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
@@ -928,8 +866,8 @@ if __name__ == '__main__':
 
     from elftools.elf.elffile import ELFFile
 
-    p_elffile = ELFFile(open('test/packed', 'rb'))
-    # p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
-    p_text = p_elffile.get_section_by_name('.text')
-    p_add = p_elffile.get_section_by_name('.symtab').get_symbol_by_name('add')[0]
+    # p_elffile = ELFFile(open('test/packed', 'rb'))
+    # # p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
+    # p_text = p_elffile.get_section_by_name('.text')
+    # p_add = p_elffile.get_section_by_name('.symtab').get_symbol_by_name('add')[0]
     print("Done")
