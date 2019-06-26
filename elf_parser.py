@@ -202,8 +202,8 @@ class ELF:
         """
         Appends a new segment with the size of the data specified, modifying any relevant pointers required.
 
-        :param data:
-        :return:
+        :param data: The data to add into the segment
+        :return: A new segment from within the ELF file
         """
 
         # Store old program header values
@@ -259,6 +259,8 @@ class ELF:
 
         ph_load_segment.p_filesz += phdr.p_filesz
         ph_load_segment.p_memsz += phdr.p_memsz
+
+        return new_segment
 
     def _create_new_segment(self, data):
 

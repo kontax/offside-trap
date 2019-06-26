@@ -122,7 +122,7 @@ def load_loader(elf, nop, loader_asm):
     # Replace the bytes in the nop function
     loader_bytes = bytearray(open(output, 'rb').read())
 
-    start = nop.st_value - PIE_OFFSET
+    start = nop.p_vaddr - PIE_OFFSET
     end = start + len(loader_bytes)
     elf.data[start:end] = loader_bytes
 
@@ -136,19 +136,20 @@ def main(filename):
     loader = open(loader_asm, 'r').read()
 
     # Get nop function for overwriting
-    nop = get_nop_function(elf)
+    #nop = get_nop_function(elf)
+    nop = elf.append_data_segment(b'\x00'*400)
 
     # Calculate address of various functions in loader:
     #  - entry
     #  - decrypt
     #  - encrypt
-    entry_addr = calculate_address(nop.st_value)
+    entry_addr = calculate_address(nop.p_vaddr)
     decrypt = entry_addr + 0x26
     encrypt = entry_addr + 0x8d
 
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
-    loader = loader.replace("#FUNC_START#", f"{hex(calculate_address(nop.st_value))}") \
+    loader = loader.replace("#FUNC_START#", f"{hex(calculate_address(nop.p_vaddr))}") \
                    .replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
                    .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
                    .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}") \
@@ -190,7 +191,7 @@ def main(filename):
     load_loader(elf, nop, f"{loader_asm}.new")
 
     # Change OEP
-    elf.e_entry = entry_addr
+    #elf.e_entry = entry_addr
 
     # Make text section writeable
     # TODO: This shouldn't be necessary
@@ -206,7 +207,7 @@ def main(filename):
 
 
 if __name__ == '__main__':
-    main('test/test-nop')
+    main('test/test')
 
 
 
