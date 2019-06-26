@@ -138,6 +138,11 @@ class ELF:
         self._e_shnum = value
         self._repack_header()
 
+    @property
+    def virtual_base(self):
+        """ Gets the virtual base of the binary (eg. 0x4000000 if no-pie) """
+        return self._virtual_base
+
     def __init__(self, data):
         self.data = bytearray(data)
         self._full_data = self.data
@@ -180,6 +185,8 @@ class ELF:
         for i in range(int(symtab.sh_size / symtab.sh_entsize)):
             self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
+        self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
+
     def append_data_segment(self, data):
         """
         1. Find the first empty space within the file
@@ -212,7 +219,7 @@ class ELF:
         # Modify the header values
         self.e_phoff = start
         p_header.p_offset = start
-        p_header.p_vaddr = start
+        p_header.p_vaddr = self.virtual_base + start
         self.data[old_start:old_end] = b'\x00' * (old_end - old_start)
 
         # Remap LOAD segment
@@ -225,7 +232,6 @@ class ELF:
             load_segment.p_memsz += p_header.p_memsz
         else:
             load_segment = p_header
-
 
         # Create new segment
         new_segment = self._create_segment(data)
