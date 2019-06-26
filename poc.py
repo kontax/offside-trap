@@ -152,7 +152,7 @@ def main(filename):
                    .replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
                    .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
                    .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}") \
-                   .replace("#ENC_FUNCTION#", f"{hex(encrypt)}") #TODO: Replace with actual address
+                   .replace("#ENC_FUNCTION#", f"{hex(encrypt)}")
 
     # Find address of all functions to be encrypted
     #functions = get_functions_for_encryption(elf)
@@ -172,7 +172,7 @@ def main(filename):
     table_str = ','.join(x for x in table_array)
 
     # Load the default preamble bytes into the loader
-    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble_new.nasm')
+    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble.nasm')
     loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble))
 
     # Prepend the table string to the loader
@@ -183,7 +183,7 @@ def main(filename):
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0
     while i < len(functions):
-        write_new_preamble(elf, i, functions[i], decrypt, encrypt, 'asm/enc_preamble_new.nasm')
+        write_new_preamble(elf, i, functions[i], decrypt, encrypt, 'asm/enc_preamble.nasm')
         i += 1
 
     # Load in loader to the address of NOP
