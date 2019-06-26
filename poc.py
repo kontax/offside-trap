@@ -21,7 +21,7 @@ from elf_parser import ELF
 from elf_enums import SymbolType
 from subprocess import check_output
 
-BYTES_TO_SAVE = 23
+BYTES_TO_SAVE = 8
 XOR = 0xa5
 PIE_OFFSET = 0x400000
 
@@ -51,10 +51,10 @@ def calculate_address(st_value):
 
 
 def create_table_entry(bytes_to_save, st_size, func_addr, i):
-    entry = bytearray(48)
-    entry[0:32] = bytes_to_save
-    entry[32:40] = unpack("8B", pack("Q", st_size))
-    entry[40:] = unpack("8B", pack("Q", func_addr))
+    entry = bytearray(24)
+    entry[0:8] = bytes_to_save
+    entry[8:16] = unpack("8B", pack("Q", st_size))
+    entry[16:] = unpack("8B", pack("Q", func_addr))
     #entry[40:] = bytearray(f"{i}a{i}b{i}c{i}d".encode('utf-8'))
 
     return entry
@@ -138,12 +138,21 @@ def main(filename):
     # Get nop function for overwriting
     nop = get_nop_function(elf)
 
+    # Calculate address of various functions in loader:
+    #  - entry
+    #  - decrypt
+    #  - encrypt
+    entry_addr = calculate_address(nop.st_value)
+    decrypt = entry_addr + 0x26
+    encrypt = entry_addr + 0x8d
+
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
     loader = loader.replace("#FUNC_START#", f"{hex(calculate_address(nop.st_value))}") \
                    .replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
                    .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
-                   .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}")
+                   .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}") \
+                   .replace("#ENC_FUNCTION#", f"{hex(encrypt)}") #TODO: Replace with actual address
 
     # Find address of all functions to be encrypted
     #functions = get_functions_for_encryption(elf)
@@ -162,16 +171,8 @@ def main(filename):
         table_array.append(','.join('0x{:02x}'.format(x) for x in entry))
     table_str = ','.join(x for x in table_array)
 
-    # Calculate address of various functions in loader:
-    #  - entry
-    #  - decrypt
-    #  - encrypt
-    entry = calculate_address(nop.st_value)
-    decrypt = entry + 0x26
-    encrypt = entry + 0x71
-
     # Load the default preamble bytes into the loader
-    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble.nasm')
+    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble_new.nasm')
     loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble))
 
     # Prepend the table string to the loader
@@ -182,14 +183,14 @@ def main(filename):
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0
     while i < len(functions):
-        write_new_preamble(elf, i, functions[i], decrypt, encrypt, 'asm/enc_preamble.nasm')
+        write_new_preamble(elf, i, functions[i], decrypt, encrypt, 'asm/enc_preamble_new.nasm')
         i += 1
 
     # Load in loader to the address of NOP
     load_loader(elf, nop, f"{loader_asm}.new")
 
     # Change OEP
-    elf.e_entry = entry
+    elf.e_entry = entry_addr
 
     # Make text section writeable
     # TODO: This shouldn't be necessary

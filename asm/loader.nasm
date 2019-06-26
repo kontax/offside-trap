@@ -4,7 +4,9 @@
 %define text_start  #TEXT_START#        ; Address of text section
 %define text_len    #TEXT_LEN#          ; Length of text section
 %define oep         #OEP#               ; Original entry point
-%define bc          23                  ; Bytecount of overwritten bytes at start of function
+%define bc          8                   ; Bytecount of overwritten bytes at start of function
+%define length      bc                  ; Entry point in table of the  total length of the function being decrypted
+%define ret_func    bc+8                ; Entry point in table of the adderss of the function being decrypted
 
 entry:
     ; Save the state of the program
@@ -33,24 +35,29 @@ entry:
 
 
 decrypt:
+    ; ROP dummy stack entries
+    push 0x0fffffff                     ; Address of encryption function
+    push 0x0fffffff                     ; Address of function being decrypted to return to
+    nop
+
     ; Save state
-    ; rax is pushed before the function call
+    push rax
     push rbx
     push rcx
     push rdi
     push rsi
 
     ; Get references of function from table
-    lea rbx, [table]
+    ;lea rbx, [table]        ; TODO: Is this necessary?
+    mov rax, [rsp+0x38]                 ; Offset within table from stack push
     and rax, 0xff
     ; offset * (bytes for each entry) + address of table + offset within entry
     mov rbx, rax                        ; Offset within table
-    imul rbx, 0x30                      ; Size of each entry in table
-    mov rdi, [rbx+table+0x28]           ; Original entry point of function
+    imul rbx, 0x18                      ; Size of each entry in table
+    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
-    mov rcx, [rbx+table+0x20]           ; Length of function
+    mov rcx, [rbx+table+length]         ; Length of function
     push rdi                            ; Save address
-    push rax                            ; Save offset
 
     ; Decrypt the data a byte at a time
     cld                                 ; Set direction flag to increment RDI
@@ -61,7 +68,6 @@ decrypt:
         loop .decrypt                   ; Loop and decrement RCX until 0
 
     ; Restore the original function bytes
-    pop rax                             ; Offset of function
     pop rdi                             ; Original function
     mov rcx, bc                         ; Bytes to restore
     lea rsi, [rbx+table]                ; Original bytes from function
@@ -70,6 +76,11 @@ decrypt:
         lodsb                           ; Load byte from table
         stosb                           ; Store byte into original function
         loop .restore                   ; Decrement rcx for length of function
+
+    ; Massage stack for ROP
+    mov QWORD [rsp+0x30], #ENC_FUNCTION#; Encryption function address
+    mov rdi, [rbx+table+ret_func]
+    mov [rsp+0x28], rdi                 ; Return address function
 
     ; Restore state and return to function
     pop rsi
@@ -95,10 +106,10 @@ encrypt:
 
     ; offset * (bytes for each entry) + address of table + offset within entry
     mov rbx, rax                        ; Offset within table
-    imul rbx, 48                        ; Size of each entry in table
-    mov rdi, [rbx+table+0x28]           ; Original entry point of function
+    imul rbx, 0x18                      ; Size of each entry in table
+    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
-    mov rcx, [rbx+table+0x20]           ; Length of function
+    mov rcx, [rbx+table+length]         ; Length of function
 
     cld                                 ; Set the direction flag to increment RDI
     .encrypt:
@@ -107,11 +118,9 @@ encrypt:
         stosb                           ; Store the byte back in the address
         loop .encrypt                   ; Loop and decrement RCX until 0
 
-    ; TODO: Overwrite the first few bytes with a call to the decryption routine
     ; Overwrite the first few bytes with the decryption preamble
-    mov rdi, [rbx+table+0x28]           ; Original entry point of function
+    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
     mov rsi, preamble                   ; Get preamble bytes
-    ; mov rsi, rdi                 ; Get preamble bytes
     mov rcx, bc                         ; Bytes to restore
 
     cld
@@ -121,12 +130,9 @@ encrypt:
         loop .preamble                  ; Decrement rcx for length of function
 
     ; Replace offset and address within preamble
-    mov rax, [rsp+0x28]                 ; Offset of function in table
-    mov rbx, [rbx+table+0x28]           ; Original entry point of function
-    mov [rbx+0x1], al      ; Replace offset in preamble
-    mov [rbx+0xf], ax     ; Replace second reference to offset in preamble
-    ; mov rdi, [rbx]           ; Original entry point of function
-    mov [rbx+0x8], ebx    ; Replace entry point in function
+    mov rax, [rsp+0x28]                ; Offset of function in table
+    mov rbx, [rbx+table+ret_func]       ; Original entry point of function
+    mov [rbx+0x1], al                   ; Replace offset in preamble
 
     ; Reinstate the state of the program
     pop rsi
