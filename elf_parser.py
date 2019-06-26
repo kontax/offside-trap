@@ -202,36 +202,38 @@ class ELF:
         # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
         program_headers = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR]
         if len(program_headers) > 0:
-            p_header = program_headers[0]
+            p_header_segment = program_headers[0]
         else:
-            p_header = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
-        size_needed = p_header.p_filesz + self.e_phentsize
+            p_header_segment = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+        size_needed = p_header_segment.p_filesz + self.e_phentsize
         gap_segments = self._get_gap_segments(size_needed)
 
-        old_start = p_header.p_offset
-        old_end = p_header.p_offset + p_header.p_filesz
+        old_start = self.e_phoff
+        old_end = self.e_phoff + self.e_phnum * self.e_phentsize
         old_size = old_end - old_start
+        old_data = self.data[old_start:old_end]
 
         # Copy existing header and data
         start = gap_segments[0].p_offset + gap_segments[0].p_filesz
-        self.data[start:start + old_size] = p_header.data
+        self.data[start:start + old_size] = old_data
 
         # Modify the header values
         self.e_phoff = start
-        p_header.p_offset = start
-        p_header.p_vaddr = self.virtual_base + start
+        if p_header_segment.p_type == ProgramType.PT_PHDR:
+            p_header_segment.p_offset = start
+            p_header_segment.p_vaddr = self.virtual_base + start
         self.data[old_start:old_end] = b'\x00' * (old_end - old_start)
 
         # Remap LOAD segment
         # See above about statically linked files
-        if p_header.p_type == ProgramType.PT_PHDR:
+        if p_header_segment.p_type == ProgramType.PT_PHDR:
             load_segment = [x for x in self.segments
                             if x.p_offset <= old_start <= x.p_offset + x.p_filesz
                             and x.p_type == ProgramType.PT_LOAD][0]
-            load_segment.p_filesz += p_header.p_filesz
-            load_segment.p_memsz += p_header.p_memsz
+            load_segment.p_filesz += p_header_segment.p_filesz
+            load_segment.p_memsz += p_header_segment.p_memsz
         else:
-            load_segment = p_header
+            load_segment = p_header_segment
 
         # Create new segment
         new_segment = self._create_segment(data)
@@ -242,11 +244,11 @@ class ELF:
         offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
         self._full_data[offset:offset + self.e_phentsize] = packed
         self.e_phnum += 1
-        p_header.p_filesz += self.e_phentsize
-        p_header.p_memsz += self.e_phentsize
+        p_header_segment.p_filesz += self.e_phentsize
+        p_header_segment.p_memsz += self.e_phentsize
 
-        load_segment.p_filesz += p_header.p_filesz
-        load_segment.p_memsz += p_header.p_memsz
+        load_segment.p_filesz += p_header_segment.p_filesz
+        load_segment.p_memsz += p_header_segment.p_memsz
 
     def _create_segment(self, data):
 

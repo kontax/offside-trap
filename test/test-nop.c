@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 const char MESSAGE[15] = "Test Message\n";
 
 int add(int a, int b) {
@@ -24,6 +26,7 @@ int mul(int a, int b) {
         i++;
         j++;
     }
+    printf("IN MUL\n");
     return a * b;
 }
 
@@ -83,6 +86,10 @@ int main() {
         b = sub(9, 3),
         c = mul(8, 4);
 
+    printf("3 + 4 = %d\n", a);
+    printf("9 - 3 = %d\n", b);
+    printf("8 * 4 = %d\n", c);
+
     if(a == b) {
         do_nothing();
     } else {
@@ -94,4 +101,4 @@ int main() {
 
     return 0;
 }
-    
+
