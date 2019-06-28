@@ -78,7 +78,7 @@ decrypt:
         stosb                           ; Store byte into original function
         loop .restore                   ; Decrement rcx for length of function
 
-    ; Massage stack for ROP
+    ; Set up stack for ROP
     lea rax, [encrypt]
     mov QWORD [rsp+0x30], rax           ; Encryption function address
     mov rdi, [rbx+ret_func]
