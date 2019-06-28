@@ -1,5 +1,6 @@
 [bits 64]
-[org #FUNC_START#]                      ; The offset of the function within the binary
+[default rel]
+;[org #FUNC_START#]                      ; The offset of the function within the binary
 
 %define text_start  #TEXT_START#        ; Address of text section
 %define text_len    #TEXT_LEN#          ; Length of text section
@@ -48,15 +49,16 @@ decrypt:
     push rsi
 
     ; Get references of function from table
-    ;lea rbx, [table]        ; TODO: Is this necessary?
-    mov rax, [rsp+0x38]                 ; Offset within table from stack push
-    and rax, 0xff
+    lea rbx, [table]                    ; Store relative address of table
+    mov rax, [rsp+0x38]                 ; Offset within table - from preamble stack push
+    and rax, 0xff                       ; TODO: Could be unnecessary when fixing num-func issue
+    imul rax, 0x18                      ; Size of each entry in table
+
     ; offset * (bytes for each entry) + address of table + offset within entry
-    mov rbx, rax                        ; Offset within table
-    imul rbx, 0x18                      ; Size of each entry in table
-    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
+    add rbx, rax                        ; Offset within table
+    mov rdi, [rbx+ret_func]             ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
-    mov rcx, [rbx+table+length]         ; Length of function
+    mov rcx, [rbx+length]               ; Length of function
     push rdi                            ; Save address
 
     ; Decrypt the data a byte at a time
@@ -70,7 +72,7 @@ decrypt:
     ; Restore the original function bytes
     pop rdi                             ; Original function
     mov rcx, bc                         ; Bytes to restore
-    lea rsi, [rbx+table]                ; Original bytes from function
+    lea rsi, [rbx]                      ; Original bytes from function
 
     .restore:
         lodsb                           ; Load byte from table
@@ -78,8 +80,9 @@ decrypt:
         loop .restore                   ; Decrement rcx for length of function
 
     ; Massage stack for ROP
-    mov QWORD [rsp+0x30], #ENC_FUNCTION#; Encryption function address
-    mov rdi, [rbx+table+ret_func]
+    lea rax, [encrypt]
+    mov QWORD [rsp+0x30], rax           ; Encryption function address
+    mov rdi, [rbx+ret_func]
     mov [rsp+0x28], rdi                 ; Return address function
 
     ; Restore state and return to function
@@ -102,14 +105,16 @@ encrypt:
     push rsi
 
     ; Get references of function from table
+    lea rbx, [table]                    ; Store relative address of table
     mov rax, [rsp+0x28]                 ; Offset of function in table
+    and rax, 0xff                       ; TODO: Could be unnecessary when fixing num-func issue
+    imul rax, 0x18                      ; Size of each entry in table
 
     ; offset * (bytes for each entry) + address of table + offset within entry
-    mov rbx, rax                        ; Offset within table
-    imul rbx, 0x18                      ; Size of each entry in table
-    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
+    add rbx, rax                        ; Offset within table
+    mov rdi, [rbx+ret_func]             ; Original entry point of function
     mov rsi, rdi                        ; Store reference to address
-    mov rcx, [rbx+table+length]         ; Length of function
+    mov rcx, [rbx+length]               ; Length of function
 
     cld                                 ; Set the direction flag to increment RDI
     .encrypt:
@@ -119,8 +124,8 @@ encrypt:
         loop .encrypt                   ; Loop and decrement RCX until 0
 
     ; Overwrite the first few bytes with the decryption preamble
-    mov rdi, [rbx+table+ret_func]       ; Original entry point of function
-    mov rsi, preamble                   ; Get preamble bytes
+    mov rdi, [rbx+ret_func]             ; Original entry point of function
+    lea rsi, [preamble]                 ; Get preamble bytes
     mov rcx, bc                         ; Bytes to restore
 
     cld
@@ -130,8 +135,8 @@ encrypt:
         loop .preamble                  ; Decrement rcx for length of function
 
     ; Replace offset and address within preamble
-    mov rax, [rsp+0x28]                ; Offset of function in table
-    mov rbx, [rbx+table+ret_func]       ; Original entry point of function
+    mov rax, [rsp+0x28]                 ; Offset of function in table
+    mov rbx, [rbx+ret_func]             ; Original entry point of function
     mov [rbx+0x1], al                   ; Replace offset in preamble
 
     ; Reinstate the state of the program

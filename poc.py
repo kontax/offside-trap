@@ -34,8 +34,8 @@ def get_functions_for_encryption(elf):
     func_symbols = [f for f in elf.symbols
                     if f.st_info.st_type == SymbolType.STT_FUNC                    # All functions
                     and f.symbol_name != 'nop'                                     # Ignore the loader storage
-                    and f.st_size >= BYTES_TO_SAVE                                 # Is bigger than preamble
-                    and elf.data[f.st_value-PIE_OFFSET:f.st_value+4-PIE_OFFSET] == b"\x55\x48\x89\xe5"]  # Have preamble
+                    and f.st_size >= BYTES_TO_SAVE]                                 # Is bigger than preamble
+                    #and elf.data[f.st_value-PIE_OFFSET:f.st_value+4-PIE_OFFSET] == b"\x55\x48\x89\xe5"]  # Have preamble
     return func_symbols
 
 
@@ -149,11 +149,9 @@ def main(filename):
 
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
-    loader = loader.replace("#FUNC_START#", f"{hex(calculate_address(nop.p_vaddr))}") \
-                   .replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
+    loader = loader.replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
                    .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
-                   .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}") \
-                   .replace("#ENC_FUNCTION#", f"{hex(encrypt)}")
+                   .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}")
 
     # Find address of all functions to be encrypted
     #functions = get_functions_for_encryption(elf)
@@ -203,7 +201,7 @@ def main(filename):
     with open(f"{filename}.packed", 'wb') as f:
         f.write(elf.data)
 
-    print("do something with the string")
+    print(f"Complete - file saved as {filename}.packed")
 
 
 if __name__ == '__main__':
