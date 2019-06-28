@@ -844,7 +844,7 @@ class Symbol:
             self.symbol_name = None
 
     def __str__(self):
-        return self.symbol_name
+        return f"{self.symbol_name}: {self.st_info}"
 
     def _parse_header(self, data, symbol_number):
         header = parse_header(data, symbol_number, self.sh_entsize, self.sh_offset, self.hdr_struct)
@@ -869,6 +869,9 @@ class SymbolInfo:
 
     def get_value(self):
         return int(f"{self.st_bind.value:04b}{self.st_type.value:04b}", 2)
+
+    def __str__(self):
+        return f"[{self.st_type.name} @ {self.st_bind.name}]"
 
 
 if __name__ == '__main__':
