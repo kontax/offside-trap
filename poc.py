@@ -18,10 +18,11 @@
 import os
 from struct import pack, unpack
 from elf_parser import ELF
-from elf_enums import SymbolType
+from elf_enums import SymbolType, SymbolBinding
 from subprocess import check_output
 
-BYTES_TO_SAVE = 8
+BYTES_TO_SAVE = 11
+TABLE_ENTRY_SIZE = 32
 XOR = 0xa5
 PIE_OFFSET = 0x400000
 
@@ -34,14 +35,15 @@ def get_functions_for_encryption(elf):
     func_symbols = [f for f in elf.symbols
                     if f.st_info.st_type == SymbolType.STT_FUNC                    # All functions
                     and f.symbol_name != 'nop'                                     # Ignore the loader storage
-                    and f.st_size >= BYTES_TO_SAVE]                                 # Is bigger than preamble
+                    and f.st_size >= BYTES_TO_SAVE                                  # Is bigger than preamble
+                    and f.st_info.st_bind == SymbolBinding.STB_LOCAL]               # Is a local function
                     #and elf.data[f.st_value-PIE_OFFSET:f.st_value+4-PIE_OFFSET] == b"\x55\x48\x89\xe5"]  # Have preamble
     return func_symbols
 
 
 def get_bytes_to_save(elf, function):
     data = elf.data[function.st_value - PIE_OFFSET:function.st_value + BYTES_TO_SAVE - PIE_OFFSET]
-    padding = bytearray(b'\0'*(32-BYTES_TO_SAVE))
+    padding = bytearray(b'\0'*(16-BYTES_TO_SAVE))
     data[len(data):] = padding
     return data
 
@@ -51,10 +53,10 @@ def calculate_address(st_value):
 
 
 def create_table_entry(bytes_to_save, st_size, func_addr, i):
-    entry = bytearray(24)
-    entry[0:8] = bytes_to_save
-    entry[8:16] = unpack("8B", pack("Q", st_size))
-    entry[16:] = unpack("8B", pack("Q", func_addr))
+    entry = bytearray(TABLE_ENTRY_SIZE)
+    entry[0:16] = bytes_to_save
+    entry[16:24] = unpack("8B", pack("Q", st_size))
+    entry[24:] = unpack("8B", pack("Q", func_addr))
     #entry[40:] = bytearray(f"{i}a{i}b{i}c{i}d".encode('utf-8'))
 
     return entry
@@ -99,7 +101,7 @@ def get_preamble_bytes(decrypt, index, nasm):
     with open(tmp_src, 'w') as f:
         f.write(asm)
 
-    check_output(['nasm', tmp_src])
+    check_output(['nasm', '-O0', tmp_src])
 
     # Get the assembled bytes
     bytecode = bytearray(open(tmp_file, 'rb').read())
@@ -133,26 +135,15 @@ def main(filename):
     loader_asm = 'asm/loader.nasm'
     loader = open(loader_asm, 'r').read()
 
-    # Get nop function for overwriting
-    #nop = get_nop_function(elf)
-    nop = elf.append_data_segment(b'\x00'*400)
-
-    # Calculate address of various functions in loader:
-    #  - entry
-    #  - decrypt
-    #  - encrypt
-    entry_addr = calculate_address(nop.p_vaddr)
-    decrypt = entry_addr + 0x26
+    # Find address of all functions to be encrypted
+    functions = get_functions_for_encryption(elf)
+    #functions = [x for x in elf.symbols if x.symbol_name == 'add' or x.symbol_name == 'mul' or x.symbol_name == 'sub' or x.symbol_name == 'no_args']
 
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
     loader = loader.replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
                    .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
                    .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}")
-
-    # Find address of all functions to be encrypted
-    #functions = get_functions_for_encryption(elf)
-    functions = [x for x in elf.symbols if x.symbol_name == 'add' or x.symbol_name == 'mul' or x.symbol_name == 'sub' or x.symbol_name == 'no_args']
 
     # Calculate table based on the address and number of those functions
     table = []
@@ -166,6 +157,18 @@ def main(filename):
     for entry in table:
         table_array.append(','.join('0x{:02x}'.format(x) for x in entry))
     table_str = ','.join(x for x in table_array)
+    table_size = len(table_array)
+
+    # Get nop function for overwriting
+    #nop = get_nop_function(elf)
+    nop = elf.append_data_segment(b'\x00'*(table_size*TABLE_ENTRY_SIZE + 400))
+
+    # Calculate address of various functions in loader:
+    #  - entry
+    #  - decrypt
+    #  - encrypt
+    entry_addr = calculate_address(nop.p_vaddr)
+    decrypt = entry_addr + 0x26
 
     # Load the default preamble bytes into the loader
     preamble = get_preamble_bytes(decrypt, "0x00", 'asm/enc_preamble.nasm')

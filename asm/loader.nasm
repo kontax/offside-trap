@@ -4,9 +4,10 @@
 %define text_start  #TEXT_START#        ; Address of text section
 %define text_len    #TEXT_LEN#          ; Length of text section
 %define oep         #OEP#               ; Original entry point
-%define bc          8                   ; Bytecount of overwritten bytes at start of function
-%define length      bc                  ; Entry point in table of the  total length of the function being decrypted
-%define ret_func    bc+8                ; Entry point in table of the adderss of the function being decrypted
+%define bc          11                  ; Bytecount of overwritten bytes at start of function
+%define length      16                  ; Entry point in table of the  total length of the function being decrypted
+%define ret_func    24                  ; Entry point in table of the adderss of the function being decrypted
+%define tbl_sz      32                  ; Full size of each entry within the table in bytes
 
 entry:
     ; Save the state of the program
@@ -50,8 +51,7 @@ decrypt:
     ; Get references of function from table
     lea rbx, [table]                    ; Store relative address of table
     mov rax, [rsp+0x38]                 ; Offset within table - from preamble stack push
-    and rax, 0xff                       ; TODO: Could be unnecessary when fixing num-func issue
-    imul rax, 0x18                      ; Size of each entry in table
+    imul rax, tbl_sz                    ; Size of each entry in table
 
     ; offset * (bytes for each entry) + address of table + offset within entry
     add rbx, rax                        ; Offset within table
@@ -106,8 +106,7 @@ encrypt:
     ; Get references of function from table
     lea rbx, [table]                    ; Store relative address of table
     mov rax, [rsp+0x28]                 ; Offset of function in table
-    and rax, 0xff                       ; TODO: Could be unnecessary when fixing num-func issue
-    imul rax, 0x18                      ; Size of each entry in table
+    imul rax, tbl_sz                    ; Size of each entry in table
 
     ; offset * (bytes for each entry) + address of table + offset within entry
     add rbx, rax                        ; Offset within table
@@ -153,12 +152,13 @@ table: db #TABLE#
 
                                         ; Address of table containing info on encrypted functions
                                         ; This table has the format;
-                                        ;   First 8 bytes in memory of original function (for now)
+                                        ;   First 11 bytes in memory of original function (for now)
+                                        ;   5 bytes of padding
                                         ;   Function length in bytes (little endian)
                                         ;   Address of function in memory (little endian)
                                         ; For example:
                                         ; 89 7d fc 89 75 f8 8b 55
-                                        ; 28 03 00 00 00 00 00 00
+                                        ; 28 03 11 00 00 00 00 00
                                         ; 3f 11 40 00 00 00 00 00
                                         ; Once ELF has been sorted, the first few bytes should disappear
                                         ; May also remove the address of the function as this can be stored when
