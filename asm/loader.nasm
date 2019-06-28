@@ -1,6 +1,5 @@
 [bits 64]
 [default rel]
-;[org #FUNC_START#]                      ; The offset of the function within the binary
 
 %define text_start  #TEXT_START#        ; Address of text section
 %define text_len    #TEXT_LEN#          ; Length of text section
@@ -155,14 +154,10 @@ table: db #TABLE#
                                         ; Address of table containing info on encrypted functions
                                         ; This table has the format;
                                         ;   First 8 bytes in memory of original function (for now)
-                                        ;   Next 8 bytes of original function
-                                        ;   Next 7 bytes of original function + 1 byte of padding
-                                        ;   Next 8 bytes padding
                                         ;   Function length in bytes (little endian)
                                         ;   Address of function in memory (little endian)
                                         ; For example:
                                         ; 89 7d fc 89 75 f8 8b 55
-                                        ; fc 8b 45 f8 01 00 00 00
                                         ; 28 03 00 00 00 00 00 00
                                         ; 3f 11 40 00 00 00 00 00
                                         ; Once ELF has been sorted, the first few bytes should disappear
