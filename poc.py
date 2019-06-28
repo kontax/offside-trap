@@ -76,9 +76,9 @@ def encrypt_and_store_first_bytes(elf, function, i):
     return table_entry
 
 
-def write_new_preamble(elf, index, function, decrypt, encrypt, nasm):
+def write_new_preamble(elf, index, function, decrypt, nasm):
 
-    bytecode = get_preamble_bytes(decrypt, encrypt, function.st_value, index, nasm)
+    bytecode = get_preamble_bytes(decrypt, index, nasm)
 
     # Replace the function preamble with the new bytes
     start = function.st_value - PIE_OFFSET
@@ -87,14 +87,12 @@ def write_new_preamble(elf, index, function, decrypt, encrypt, nasm):
     elf.data[start:end] = bytecode
 
 
-def get_preamble_bytes(decrypt, encrypt, func_address, index, nasm):
+def get_preamble_bytes(decrypt, index, nasm):
     tmp_file = "tmp/preamble"
     tmp_src = f"{tmp_file}.nasm"
     # Replace the assembly with the relevant values
     asm = open(nasm, 'r').read()
-    asm = asm.replace("#FUNCTION#", f"{hex(calculate_address(func_address))}") \
-        .replace("#OFFSET#", f"{index}") \
-        .replace("#ENC_FUNC#", f"{hex(encrypt)}") \
+    asm = asm.replace("#OFFSET#", f"{index}") \
         .replace("#DEC_FUNC#", f"{hex(decrypt)}")
 
     # Create a temp file with assembled instructions
@@ -122,7 +120,7 @@ def load_loader(elf, nop, loader_asm):
     # Replace the bytes in the nop function
     loader_bytes = bytearray(open(output, 'rb').read())
 
-    start = nop.p_vaddr - PIE_OFFSET
+    start = nop.p_offset# - PIE_OFFSET
     end = start + len(loader_bytes)
     elf.data[start:end] = loader_bytes
 
@@ -145,7 +143,6 @@ def main(filename):
     #  - encrypt
     entry_addr = calculate_address(nop.p_vaddr)
     decrypt = entry_addr + 0x26
-    encrypt = entry_addr + 0x8d
 
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
@@ -171,7 +168,7 @@ def main(filename):
     table_str = ','.join(x for x in table_array)
 
     # Load the default preamble bytes into the loader
-    preamble = get_preamble_bytes(decrypt, encrypt, 0x401000, "0x00", 'asm/enc_preamble.nasm')
+    preamble = get_preamble_bytes(decrypt, "0x00", 'asm/enc_preamble.nasm')
     loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble))
 
     # Prepend the table string to the loader
@@ -182,7 +179,7 @@ def main(filename):
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0
     while i < len(functions):
-        write_new_preamble(elf, i, functions[i], decrypt, encrypt, 'asm/enc_preamble.nasm')
+        write_new_preamble(elf, i, functions[i], decrypt, 'asm/enc_preamble.nasm')
         i += 1
 
     # Load in loader to the address of NOP

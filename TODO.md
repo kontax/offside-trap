@@ -1,6 +1,6 @@
 # TODO List
 
-1. Fix staticly compiled files
+1. ~~Fix staticly compiled files~~
 2. Work without -no-pie
 3. Fix limit on function count
 4. Implement RC4
