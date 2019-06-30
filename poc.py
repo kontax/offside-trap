@@ -18,13 +18,12 @@
 import os
 from struct import pack, unpack
 from elf_parser import ELF
-from elf_enums import SymbolType, SymbolBinding
+from elf_enums import SymbolType, SymbolBinding, ELFFileType
 from subprocess import check_output
 
 BYTES_TO_SAVE = 15
 TABLE_ENTRY_SIZE = 32
 XOR = 0xa5
-PIE_OFFSET = 0x000000
 PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,  # push [table_offset]
                                0x50,  # push rax
                                0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00,  # lea rax, [addr]
@@ -41,12 +40,12 @@ def get_functions_for_encryption(elf):
                     and f.symbol_name != 'nop'  # Ignore the loader storage
                     and f.st_size >= BYTES_TO_SAVE  # Is bigger than preamble
                     and f.st_info.st_bind == SymbolBinding.STB_LOCAL]  # Is a local function
-    # and elf.data[f.st_value-PIE_OFFSET:f.st_value+4-PIE_OFFSET] == b"\x55\x48\x89\xe5"]  # Have preamble
     return func_symbols
 
 
 def get_bytes_to_save(elf, function):
-    data = elf.data[function.st_value - PIE_OFFSET:function.st_value + BYTES_TO_SAVE - PIE_OFFSET]
+    pie_offset = 0x400000 if elf.e_type != ELFFileType.ET_DYN else 0
+    data = elf.data[function.st_value - pie_offset:function.st_value + BYTES_TO_SAVE - pie_offset]
     padding = bytearray(b'\0' * (16 - BYTES_TO_SAVE))
     data[len(data):] = padding
     return data
@@ -56,24 +55,24 @@ def calculate_address(st_value):
     return st_value + 0x000000
 
 
-def create_table_entry(bytes_to_save, st_size, func_addr, i):
+def create_table_entry(bytes_to_save, st_size, func_addr):
     entry = bytearray(TABLE_ENTRY_SIZE)
     entry[0:16] = bytes_to_save
     entry[16:24] = unpack("8B", pack("Q", st_size))
     entry[24:] = unpack("8B", pack("Q", func_addr))
-    # entry[40:] = bytearray(f"{i}a{i}b{i}c{i}d".encode('utf-8'))
 
     return entry
 
 
-def encrypt_and_store_first_bytes(elf, function, i):
+def encrypt_and_store_first_bytes(elf, function):
     # Save the original bytes for later
     bytes_to_save = get_bytes_to_save(elf, function)
     func_addr = calculate_address(function.st_value)
-    table_entry = create_table_entry(bytes_to_save, function.st_size, func_addr, i)
+    table_entry = create_table_entry(bytes_to_save, function.st_size, func_addr)
 
     # Encrypt the function's data
-    start = function.st_value - PIE_OFFSET
+    pie_offset = 0x400000 if elf.e_type != ELFFileType.ET_DYN else 0
+    start = function.st_value - pie_offset
     end = start + function.st_size
 
     for j in range(start, end):
@@ -82,16 +81,17 @@ def encrypt_and_store_first_bytes(elf, function, i):
     return table_entry
 
 
-def write_new_preamble(elf, index, function, decrypt, nasm):
+def write_new_preamble(elf, index, function, decrypt):
     offset = pack('I', index)
-    jump = pack('I', (decrypt - PIE_OFFSET) - (function.st_value - PIE_OFFSET) - 5)
-    # bytecode = get_preamble_bytes(decrypt, index, nasm)
+    pie_offset = 0x400000 if elf.e_type != ELFFileType.ET_DYN else 0
+    jump = pack('I', (decrypt - pie_offset) - (function.st_value - pie_offset) - 5)
+
     bytecode = PREAMBLE_BYTECODE.copy()
     bytecode[1:5] = offset
     bytecode[9:13] = jump
 
     # Replace the function preamble with the new bytes
-    start = function.st_value - PIE_OFFSET
+    start = function.st_value - pie_offset
     end = start + BYTES_TO_SAVE
     assert (BYTES_TO_SAVE == len(bytecode))
     elf.data[start:end] = bytecode
@@ -100,6 +100,7 @@ def write_new_preamble(elf, index, function, decrypt, nasm):
 def get_preamble_bytes(decrypt, index, nasm):
     tmp_file = "tmp/preamble"
     tmp_src = f"{tmp_file}.nasm"
+
     # Replace the assembly with the relevant values
     asm = open(nasm, 'r').read()
     asm = asm.replace("#OFFSET#", f"{index}") \
@@ -157,7 +158,7 @@ def main(filename):
     table = []
     i = 0  # TODO: Delete me
     for function in functions:
-        table.append(encrypt_and_store_first_bytes(elf, function, i))
+        table.append(encrypt_and_store_first_bytes(elf, function))
         i += 1
 
     # Load the bytes for the table at the start of the loader
@@ -192,7 +193,7 @@ def main(filename):
     # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
     i = 0
     while i < len(functions):
-        write_new_preamble(elf, i, functions[i], decrypt, 'asm/enc_preamble.nasm')
+        write_new_preamble(elf, i, functions[i], decrypt)
         i += 1
 
     # Load in loader to the address of NOP
