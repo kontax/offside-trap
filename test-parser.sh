@@ -2,11 +2,17 @@
 set -e
 
 function run_test() {
-    python elf_parser.py > /dev/null
-    cp test/packed ./test-bin
+    python poc.py > /dev/null
+    cp test/test.packed ./test-bin
     \ls -s ./test-bin
     chmod +x ./test-bin
-    ./test-bin > /dev/null
+    PRE=$(./test/test)
+    POST=$(./test-bin)
+    if [ "$PRE" == "$POST" ]; then
+        echo "PASS"
+    else
+        echo "FAIL"
+    fi
 }
 
 echo "Dynamic + PIE"
