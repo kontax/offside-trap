@@ -17,29 +17,25 @@
 
 import os
 from struct import pack, unpack
-from elf_parser import ELF
-from elf_enums import SymbolType, SymbolBinding, ELFFileType
 from subprocess import check_output
+
+from elf_enums import SymbolType, ELFFileType
+from elf_parser import ELF
 
 BYTES_TO_SAVE = 15
 TABLE_ENTRY_SIZE = 32
 XOR = 0xa5
-PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,  # push [table_offset]
-                               0x50,  # push rax
-                               0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00,  # lea rax, [addr]
-                               0xff, 0xe0])  # jmp rax
-
-
-def get_nop_function(elf):
-    return [s for s in elf.symbols if s.symbol_name == 'nop'][0]
+PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,                # push [table_offset]
+                               0x50,                                        # push rax
+                               0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00,    # lea rax, [addr]
+                               0xff, 0xe0])                                 # jmp rax
 
 
 def get_functions_for_encryption(elf):
     func_symbols = [f for f in elf.symbols
                     if f.st_info.st_type == SymbolType.STT_FUNC  # All functions
-                    and f.symbol_name != 'nop'  # Ignore the loader storage
-                    and f.st_size >= BYTES_TO_SAVE  # Is bigger than preamble
-                    and f.st_info.st_bind == SymbolBinding.STB_LOCAL]  # Is a local function
+                    and not f.symbol_name.startswith('__')  # Ignore these functions for whatever reason
+                    and f.st_size >= BYTES_TO_SAVE]  # Is bigger than preamble
     return func_symbols
 
 
@@ -49,10 +45,6 @@ def get_bytes_to_save(elf, function):
     padding = bytearray(b'\0' * (16 - BYTES_TO_SAVE))
     data[len(data):] = padding
     return data
-
-
-def calculate_address(st_value):
-    return st_value + 0x000000
 
 
 def create_table_entry(bytes_to_save, st_size, func_addr):
@@ -67,8 +59,7 @@ def create_table_entry(bytes_to_save, st_size, func_addr):
 def encrypt_and_store_first_bytes(elf, function):
     # Save the original bytes for later
     bytes_to_save = get_bytes_to_save(elf, function)
-    func_addr = calculate_address(function.st_value)
-    table_entry = create_table_entry(bytes_to_save, function.st_size, func_addr)
+    table_entry = create_table_entry(bytes_to_save, function.st_size, function.st_value)
 
     # Encrypt the function's data
     pie_offset = 0x400000 if elf.e_type != ELFFileType.ET_DYN else 0
@@ -144,15 +135,19 @@ def main(filename):
     loader = open(loader_asm, 'r').read()
 
     # Find address of all functions to be encrypted
-    # functions = get_functions_for_encryption(elf)
+    #functions = get_functions_for_encryption(elf)
     functions = [x for x in elf.symbols if
-                 x.symbol_name == 'add' or x.symbol_name == 'mul' or x.symbol_name == 'sub' or x.symbol_name == 'no_args']
+                 x.symbol_name == 'main' or
+                 x.symbol_name == 'add' or
+                 x.symbol_name == 'mul' or
+                 x.symbol_name == 'sub' or
+                 x.symbol_name == 'no_args']
 
     # Update function address in the loader
     text_section = [x for x in elf.sections if x.section_name == '.text'][0]
-    loader = loader.replace("#TEXT_START#", f"{hex(calculate_address(text_section.sh_addr))}") \
+    loader = loader.replace("#TEXT_START#", f"{hex(text_section.sh_addr)}") \
         .replace("#TEXT_LEN#", f"{hex(text_section.sh_size)}") \
-        .replace("#OEP#", f"{hex(calculate_address(elf.e_entry))}")
+        .replace("#OEP#", f"{hex(elf.e_entry)}")
 
     # Calculate table based on the address and number of those functions
     table = []
@@ -176,11 +171,10 @@ def main(filename):
     #  - entry
     #  - decrypt
     #  - encrypt
-    entry_addr = calculate_address(nop.p_vaddr)
+    entry_addr = nop.p_vaddr
     decrypt = entry_addr + 0x26
 
     # Load the default preamble bytes into the loader
-    #preamble = get_preamble_bytes(decrypt, "0x00", 'asm/enc_preamble.nasm')
     preamble = PREAMBLE_BYTECODE.copy()
     loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble)) \
         .replace("#BIN_OFFSET#", str(nop.p_vaddr))
