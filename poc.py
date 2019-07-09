@@ -1,20 +1,3 @@
-# Identify location of the NOP function
-# Parse assembly file and replace the following variables
-#  - text_start
-#  - text_len
-#  - oep
-# Find address of all functions to be encrypted
-# Calculate table based on the address and number of those functions
-# Encrypt the functions
-# Load the bytes for the table at the start of the loader
-# Calculate address of various functions in loader:
-#  - entry
-#  - decrypt
-#  - encrypt
-# Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets are used
-# Load in loader to the address of NOP
-# Change OEP
-
 import os
 from struct import pack, unpack
 from subprocess import check_output

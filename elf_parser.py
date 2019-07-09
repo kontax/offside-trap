@@ -198,6 +198,18 @@ class ELF:
 
         self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
 
+    def list_functions(self):
+        """
+        Lists all functions and their addresses within the binary. If no symbols are loaded, then the assembly is
+        parsed with the unicorn engine and the addresses are returned.
+        :return: A collection of Symbol objects (if available) and their addresses
+        """
+
+        # When symbols are available
+        if self.symbols is not None:
+            func_symbols = [fn for fn in self.symbols if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
+            return func_symbols
+
     def append_data_segment(self, data):
         """
         Appends a new segment with the size of the data specified, modifying any relevant pointers required.
@@ -844,7 +856,7 @@ class Symbol:
             self.symbol_name = None
 
     def __str__(self):
-        return f"{self.symbol_name}: {self.st_info}"
+        return f"{self.symbol_name} @ 0x{self.st_value:0x}: {self.st_info}"
 
     def _parse_header(self, data, symbol_number):
         header = parse_header(data, symbol_number, self.sh_entsize, self.sh_offset, self.hdr_struct)
