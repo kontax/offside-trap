@@ -113,7 +113,7 @@ def load_loader(elf, nop, loader_asm):
 
 
 def main(filename):
-    elf = ELF(open(filename, 'rb').read())
+    elf = ELF(filename)
     loader_asm = 'asm/loader.nasm'
     loader = open(loader_asm, 'r').read()
 

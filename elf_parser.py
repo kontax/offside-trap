@@ -1,3 +1,5 @@
+import r2pipe
+
 from capstone import *
 from elf_enums import *
 from struct import unpack, pack
@@ -157,7 +159,9 @@ class ELF:
         """ Gets how the ELF has been linked - dynamically or statically """
         return self._linking_method
 
-    def __init__(self, data):
+    def __init__(self, filename):
+        data = open(filename, 'rb').read()
+        self.r2 = r2pipe.open(filename)
         self.data = bytearray(data)
         self._full_data = self.data
         self.hdr_struct = "16sHHIQQQIHHHHHH"
@@ -223,28 +227,38 @@ class ELF:
         :return: A collection of Symbol objects (if available) within the text section and their addresses
         """
 
-        text = self.get_section('.text')
+        # Analyse the functions using radare
+        try:
+            self.r2.cmd('aaa')
+            functions = self.r2.cmdJ('aflj')
+            return [(x.offset, x.name) for x in functions]
 
-        # When symbols are available
-        if len(self.symbols) > 0:
-            func_symbols = [fn for fn in text.symbols
-                            if fn.st_info.st_type == SymbolType.STT_FUNC]   # All functions
-            return func_symbols
+        # If r2 is not on the system, go for the less accurate method of searching the symbols, or call instructions
+        except FileNotFoundError:
+            text = self.get_section('.text')
 
-        # Otherwise use the capstone engine to extract the addresses
-        md = Cs(CS_ARCH_X86, CS_MODE_64)  # TODO: Base the architecture on the ELF
+            # When symbols are available
+            if len(self.symbols) > 0:
+                func_symbols = [fn for fn in text.symbols
+                                if fn.st_info.st_type == SymbolType.STT_FUNC]   # All functions
+                return func_symbols
 
-        # Grab all call statements
-        call_instr = []
-        all_addr = [x.address for x in md.disasm(text.data, text.sh_offset)]
-        for i in md.disasm(text.data, text.sh_offset):
+            # Otherwise use the capstone engine to extract the addresses
+            mode = CS_MODE_64 if self.e_ident.el_class == ELFClass.ELFCLASS64 else CS_MODE_32
+            md = Cs(CS_ARCH_X86, mode)  # TODO: Base the architecture on the ELF
 
-            # Only store call instructions with a valid address within the text section - ignoring PLT
-            if i.mnemonic == 'call' and is_string_hex(i.op_str) and int(i.op_str, 16) in all_addr:
-                call_instr.append(i.op_str)
+            # Grab all call statements
+            call_instr = []
+            all_addr = [x.address for x in md.disasm(text.data, text.sh_offset)]
+            for i in md.disasm(text.data, text.sh_offset):
 
-        # Get the distinct list of addresses
-        return list(set(call_instr))
+                # Only store call instructions with a valid address within the text section - ignoring PLT
+                # TODO: One downside of this is code that is not called (eg. call eax) is never reached.
+                if i.mnemonic == 'call' and is_string_hex(i.op_str) and int(i.op_str, 16) in all_addr:
+                    call_instr.append(i.op_str)
+
+            # Get the distinct list of addresses
+            return list(set(call_instr))
 
     def get_section(self, name):
         """

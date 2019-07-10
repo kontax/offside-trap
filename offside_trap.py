@@ -4,10 +4,11 @@ from random import Random
 
 import os
 
-class Parser:
+
+class ElfPacker:
     def __init__(self, binary):
         print(os.getcwd())
-        self.binary = ELF(open(binary, 'rb').read())
+        self.binary = ELF(binary)
 
     def list_functions(self):
         return self.binary.list_functions()
@@ -79,11 +80,11 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     # Parse the ELF binary
-    elf_parser = Parser(args.binary)
+    packer = ElfPacker(args.binary)
 
     # If list is chosen, simply list the available functions and exit
     if args.list:
-        for symbol in elf_parser.list_functions():
+        for symbol in packer.list_functions():
             print(symbol)
         exit()
 
@@ -91,4 +92,5 @@ if __name__ == '__main__':
     if args.encrypt:
         rnd = Random()
         key = args.key if args.key is not None else rnd.randint(0, 100)
-        elf_parser.encrypt(key, args.function)
+        functions = args.function if not args.all else packer.list_functions()
+        packer.encrypt(key, functions)
