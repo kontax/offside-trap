@@ -1,9 +1,18 @@
+from capstone import *
 from elf_enums import *
 from struct import unpack, pack
 
 """
 ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
 """
+
+
+def is_string_hex(string):
+    try:
+        int(string, 16)
+        return True
+    except ValueError:
+        return False
 
 
 def parse_string_data(data, offset):
@@ -202,13 +211,40 @@ class ELF:
         """
         Lists all functions and their addresses within the binary. If no symbols are loaded, then the assembly is
         parsed with the unicorn engine and the addresses are returned.
+
         :return: A collection of Symbol objects (if available) and their addresses
         """
 
         # When symbols are available
-        if self.symbols is not None:
+        if len(self.symbols) > 0:
             func_symbols = [fn for fn in self.symbols if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
             return func_symbols
+
+        # Otherwise use the capstone engine to extract the addresses
+        md = Cs(CS_ARCH_X86, CS_MODE_64)  # TODO: Base the architecture on the ELF
+        text = self.get_section('.text')
+
+        # Grab all call statements
+        call_instr = []
+        all_addr = [x.address for x in md.disasm(text.data, text.sh_offset)]
+        for i in md.disasm(text.data, text.sh_offset):
+
+            # Only store call instructions with a valid address within the text section - ignoring PLT
+            if i.mnemonic == 'call' and is_string_hex(i.op_str) and int(i.op_str, 16) in all_addr:
+                call_instr.append(i.op_str)
+
+        # Get the distinct list of addresses
+        return list(set(call_instr))
+
+    def get_section(self, name):
+        """
+        Gets a section with the name specified. If more than one section have the name, an error is thrown.
+        :param name: The name of the section to return
+        :return: A Section object with the name specified
+        """
+        sections = [x for x in self.sections if x.section_name == name]
+        assert(len(sections) == 1)
+        return sections[0]
 
     def append_data_segment(self, data):
         """

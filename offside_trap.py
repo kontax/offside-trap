@@ -2,9 +2,11 @@ from argparse import ArgumentParser
 from elf_parser import ELF
 from random import Random
 
+import os
 
 class Parser:
     def __init__(self, binary):
+        print(os.getcwd())
         self.binary = ELF(open(binary, 'rb').read())
 
     def list_functions(self):
