@@ -193,6 +193,10 @@ class ELF:
         for i in range(self.e_shnum):
             self.sections.append(Section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data))
 
+        # Associate each section with the segment it's contained within
+        for s in self.segments:
+            s.load_sections(self.sections)
+
         # Whether the ELF is statically or dynamically linked
         self._linking_method = ELFLinkingMethod(len([x for x in self.sections if x.section_name == '.interp']))
 
@@ -205,24 +209,30 @@ class ELF:
             for i in range(int(symtab.sh_size / symtab.sh_entsize)):
                 self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
+        # Associate each symbol with the section it's contained within
+        for s in self.sections:
+            s.load_symbols(self.symbols)
+
         self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
 
     def list_functions(self):
         """
-        Lists all functions and their addresses within the binary. If no symbols are loaded, then the assembly is
-        parsed with the unicorn engine and the addresses are returned.
+        Lists all functions and their addresses within the text section of the binary. If no symbols are loaded, then
+        the assembly is parsed with the unicorn engine and the addresses are returned.
 
-        :return: A collection of Symbol objects (if available) and their addresses
+        :return: A collection of Symbol objects (if available) within the text section and their addresses
         """
+
+        text = self.get_section('.text')
 
         # When symbols are available
         if len(self.symbols) > 0:
-            func_symbols = [fn for fn in self.symbols if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
+            func_symbols = [fn for fn in text.symbols
+                            if fn.st_info.st_type == SymbolType.STT_FUNC]   # All functions
             return func_symbols
 
         # Otherwise use the capstone engine to extract the addresses
         md = Cs(CS_ARCH_X86, CS_MODE_64)  # TODO: Base the architecture on the ELF
-        text = self.get_section('.text')
 
         # Grab all call statements
         call_instr = []
@@ -239,6 +249,7 @@ class ELF:
     def get_section(self, name):
         """
         Gets a section with the name specified. If more than one section have the name, an error is thrown.
+
         :param name: The name of the section to return
         :return: A Section object with the name specified
         """
@@ -522,12 +533,18 @@ class Segment:
         self._p_align = value
         self._repack_header()
 
+    @property
+    def sections(self):
+        """ Gets the collection of sections contained within the segment"""
+        return self._sections
+
     def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
         self._full_data = data
         self.hdr_struct = "IIQQQQQQ"
         self.e_phoff = e_phoff
         self.e_phentsize = e_phentsize
         self.segment_number = segment_number
+        self._sections = []
         if header is not None:
             self._set_header(header)
             # self._repack_header()
@@ -545,6 +562,18 @@ class Segment:
 
         # Extract raw data
         self.data = data[self.p_offset:self.p_offset + self.p_filesz]
+
+    def load_sections(self, sections):
+        """
+        Parses a list of sections and adds them to the local collection if they are contained within
+        the address range of the current segment.
+
+        :param sections: The full collection of sections to check.
+        """
+        relevant_sections = [x for x in sections
+                             if x.sh_offset >= self.p_offset
+                             and x.sh_offset + x.sh_size <= self.p_offset + self.p_filesz]
+        self._sections.extend(relevant_sections)
 
     def is_segment_gap_overlapped(self, closest_segment, segments):
         """
@@ -739,12 +768,18 @@ class Section:
         self._sh_entsize = value
         self._repack_header()
 
+    @property
+    def symbols(self):
+        """ Gets the collection of symbols that point to references within the section """
+        return self._symbols
+
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
         self._full_data = data
         self.hdr_struct = "IIQQQQIIQQ"
         self.e_shoff = e_shoff  # Section header offset
         self.e_shentsize = e_shentsize
         self.section_number = section_number
+        self._symbols = []
         (
             self._sh_name,
             self._sh_type,
@@ -764,6 +799,18 @@ class Section:
 
         # Extract raw data
         self.data = data[self.sh_offset:self.sh_offset + self.sh_size]
+
+    def load_symbols(self, symbols):
+        """
+        Parses a list of symbols and adds them to the local collection if they are contained within
+        the address range of the current section.
+
+        :param symbols: The full collection of symbols to check.
+        """
+        relevant_symbols = [x for x in symbols
+                            if x.st_value >= self.sh_offset
+                            and x.st_value + x.st_size <= self.sh_offset + self.sh_size]
+        self._symbols.extend(relevant_symbols)
 
     def __str__(self):
         return f"{self.section_name} @ {hex(self.sh_offset)}"
