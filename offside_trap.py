@@ -1,49 +1,37 @@
 from argparse import ArgumentParser
-from elf_parser import ELF
+
 from random import Random
 
-import os
+from elf_packer import ELFPacker
 
 
-class ElfPacker:
-    def __init__(self, binary):
-        print(os.getcwd())
-        self.binary = ELF(binary)
-
-    def list_functions(self):
-        return self.binary.list_functions()
-
-    def encrypt(self, encryption_key, functions):
-        print(f"Encrypting {functions} in {self.binary} with {encryption_key}")
-
-
-def check_args(parser, args):
+def check_args(parser, arg_list):
     """ Checks the command line arguments sent by the user are valid.
 
     :param parser: The ArgumentParser
-    :param args: The collection of arguments
+    :param arg_list: The collection of arguments
     """
     # One of list or encrypt needs to be chosen
-    if (args.encrypt is False and
-            args.list is False):
+    if (arg_list.encrypt is False and
+            arg_list.list is False):
         parser.error("Either the --encrypt or --list flag must be selected")
 
     # Encryption needs a key
-    if (args.encrypt is True and
-            args.key is None and
-            args.random is False):
+    if (arg_list.encrypt is True and
+            arg_list.key is None and
+            arg_list.random is False):
         parser.error("Either a key or the random flag needs to be supplied when encrypting a binary.")
 
     # Encryption needs either random or supplied key, but not both
-    if (args.encrypt is True and
-            args.key is not None and
-            args.random is True):
+    if (arg_list.encrypt is True and
+            arg_list.key is not None and
+            arg_list.random is True):
         parser.error("Only one of either an encryption key or random may be selected.")
 
     # Either a list of functions or all functions must be selected
-    if (args.encrypt is True and
-            args.function is None and
-            args.all is False):
+    if (arg_list.encrypt is True and
+            arg_list.function is None and
+            arg_list.all is False):
         parser.error("A list of functions with the --function flag, or "
                      "the --all flag needs to be supplied when encrypting.")
 
@@ -80,7 +68,7 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     # Parse the ELF binary
-    packer = ElfPacker(args.binary)
+    packer = ELFPacker(args.binary)
 
     # If list is chosen, simply list the available functions and exit
     if args.list:

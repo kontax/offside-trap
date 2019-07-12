@@ -134,10 +134,8 @@ def main(filename):
 
     # Calculate table based on the address and number of those functions
     table = []
-    i = 0  # TODO: Delete me
     for function in functions:
         table.append(encrypt_and_store_first_bytes(elf, function))
-        i += 1
 
     # Load the bytes for the table at the start of the loader
     table_array = []
@@ -148,7 +146,7 @@ def main(filename):
 
     # Get nop function for overwriting
     # nop = get_nop_function(elf)
-    nop = elf.append_data_segment(b'\x00' * (table_size * TABLE_ENTRY_SIZE + 400))
+    nop = elf.append_loadable_segment(b'\x00' * (table_size * TABLE_ENTRY_SIZE + 400))
 
     # Calculate address of various functions in loader:
     #  - entry

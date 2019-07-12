@@ -13,3 +13,6 @@
     c. ~~Add references to sections within segments, symbols within sections etc.~~
     d. Look at making symbols easier to work with
 7. Re-encrypt functions on calling another function
+8. Reduce size (or need completely) of table
+9. Encrypt bytes before adding them to the table
+10. Remove the necessity of making the text section writable

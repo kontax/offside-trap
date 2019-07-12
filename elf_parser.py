@@ -1,8 +1,8 @@
+from struct import unpack, pack
+
 import r2pipe
 
-from capstone import *
 from elf_enums import *
-from struct import unpack, pack
 
 """
 ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
@@ -221,17 +221,18 @@ class ELF:
 
     def list_functions(self):
         """
-        Lists all functions and their addresses within the text section of the binary. If no symbols are loaded, then
-        the assembly is parsed with the unicorn engine and the addresses are returned.
+        Lists all functions and addresses within the text section fo the binary, using radare2 if it is available on
+        the system, otherwise using the symbol table. If neither of those options  are available, the command fails
+        as trying to manually extract functions is too error prone.
 
-        :return: A collection of Symbol objects (if available) within the text section and their addresses
+        :return: A collection of Function objects tuples within the text section and their addresses
         """
 
         # Analyse the functions using radare
         try:
             self.r2.cmd('aaa')
             functions = self.r2.cmdJ('aflj')
-            return [(x.offset, x.name) for x in functions]
+            return [Function(x.name, x.offset, x.size) for x in functions]
 
         # If r2 is not on the system, go for the less accurate method of searching the symbols, or call instructions
         except FileNotFoundError:
@@ -239,26 +240,13 @@ class ELF:
 
             # When symbols are available
             if len(self.symbols) > 0:
-                func_symbols = [fn for fn in text.symbols
+                func_symbols = [Function(fn.name, fn.st_value, fn.st_size)
+                                for fn in text.symbols
                                 if fn.st_info.st_type == SymbolType.STT_FUNC]   # All functions
                 return func_symbols
 
-            # Otherwise use the capstone engine to extract the addresses
-            mode = CS_MODE_64 if self.e_ident.el_class == ELFClass.ELFCLASS64 else CS_MODE_32
-            md = Cs(CS_ARCH_X86, mode)  # TODO: Base the architecture on the ELF
-
-            # Grab all call statements
-            call_instr = []
-            all_addr = [x.address for x in md.disasm(text.data, text.sh_offset)]
-            for i in md.disasm(text.data, text.sh_offset):
-
-                # Only store call instructions with a valid address within the text section - ignoring PLT
-                # TODO: One downside of this is code that is not called (eg. call eax) is never reached.
-                if i.mnemonic == 'call' and is_string_hex(i.op_str) and int(i.op_str, 16) in all_addr:
-                    call_instr.append(i.op_str)
-
-            # Get the distinct list of addresses
-            return list(set(call_instr))
+            else:
+                raise RuntimeError("Radare2 was not found, and the binary is stripped. Cannot extract functions")
 
     def get_section(self, name):
         """
@@ -271,7 +259,17 @@ class ELF:
         assert(len(sections) == 1)
         return sections[0]
 
-    def append_data_segment(self, data):
+    def get_data_segment(self, start_addr, end_addr):
+        """
+        Extracts a segment of data as a bytearray.
+
+        :param start_addr: The offset in bytes wtihin the binary where the data to be extracted is found
+        :param end_addr: The end address in bytes of the data
+        :return: A bytearray containing the data
+        """
+        return self.data[start_addr:end_addr]
+
+    def append_loadable_segment(self, data):
         """
         Appends a new segment with the size of the data specified, modifying any relevant pointers required.
 
@@ -983,18 +981,31 @@ class SymbolInfo:
         return f"[{self.st_type.name} @ {self.st_bind.name}]"
 
 
+class Function:
+    """ A helper class for returning details of specific functions within the binary """
+    def __init__(self, name, offset, size):
+        """
+        Initialises a new Function given it's name, offset and size.
+        :param name: The name of the function (from a symbol if available, otherwise randomly generated)
+        :param offset: The address of the function in bytes within the binary
+        :param size: The lenght of the function in bytes
+        """
+        self.name = name
+        self.start_addr = offset
+        self.size = size
+        self.end_addr = offset + size
+
+
 if __name__ == '__main__':
     with open('test/test', 'rb') as f:
         test = f.read()
     elffile = ELF(test)
     # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray(b'\xff' * 800))
     # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray())
-    elffile.append_data_segment(bytearray(b'\xff' * 800))
+    elffile.append_loadable_segment(bytearray(b'\xff' * 800))
 
     with open('test/packed', 'wb') as f:
         f.write(elffile.data)
-
-    from elftools.elf.elffile import ELFFile
 
     # p_elffile = ELFFile(open('test/packed', 'rb'))
     # # p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
