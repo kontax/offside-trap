@@ -995,20 +995,5 @@ class Function:
         self.size = size
         self.end_addr = offset + size
 
-
-if __name__ == '__main__':
-    with open('test/test', 'rb') as f:
-        test = f.read()
-    elffile = ELF(test)
-    # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray(b'\xff' * 800))
-    # elffile.append_segment(ProgramType.PT_LOAD, 7, bytearray())
-    elffile.append_loadable_segment(bytearray(b'\xff' * 800))
-
-    with open('test/packed', 'wb') as f:
-        f.write(elffile.data)
-
-    # p_elffile = ELFFile(open('test/packed', 'rb'))
-    # # p_segment = [x for x in p_elffile.iter_segments() if x.header.p_paddr == 15848][0]
-    # p_text = p_elffile.get_section_by_name('.text')
-    # p_add = p_elffile.get_section_by_name('.symtab').get_symbol_by_name('add')[0]
-    print("Done")
+    def __str__(self):
+        return f"{self.name} @ 0x{self.start_addr:x}"

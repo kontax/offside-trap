@@ -80,5 +80,8 @@ if __name__ == '__main__':
     if args.encrypt:
         rnd = Random()
         key = args.key if args.key is not None else rnd.randint(0, 100)
-        functions = args.function if not args.all else packer.list_functions()
+        all_functions = packer.list_functions()
+        # TODO: Error checking for missing functions
+        functions = [f for f in all_functions if f.name in args.function or args.all]
+        #functions = args.function if not args.all else packer.list_functions()
         packer.encrypt(key, functions)

@@ -20,7 +20,7 @@ class ELFPacker:
         self.binary = ELF(binary)
 
         # If the binary is not position independent, it starts at this set offset
-        self._pie_offset = 0 if self.binary == ELFFileType.ET_DYN else 0x400000
+        self._pie_offset = 0 if self.binary.e_type == ELFFileType.ET_DYN else 0x400000
 
     def list_functions(self):
         """
@@ -38,7 +38,9 @@ class ELFPacker:
         :param encryption_key: The key used to encrypt the selected functions
         :param function_list: The list of functions to encrypt
         """
-        print(f"Encrypting {function_list} in {self.binary} with {encryption_key}")
+        print(f"Encrypting the following functions in {self.binary} with {encryption_key}")
+        for f in function_list:
+            print(f"[-] {f}")
 
         # Construct the table used for reference in the decryption/encryption routines
         table = self._get_reference_table(function_list)
@@ -55,7 +57,8 @@ class ELFPacker:
 
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
-        decryption_addr = loader.find(b'PSQ')  # Finds the first occurrence of this sequence of bytes
+        # Finds the first occurrence of this sequence of bytes, which starts with the bytecode PSQ
+        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr
         i = 0
         while i < len(function_list):
             self._write_new_preamble(i, function_list[i], decryption_addr)
@@ -69,7 +72,7 @@ class ELFPacker:
         # Make text section writeable
         # TODO: This shouldn't be necessary
         text_segment = [s for s in self.binary.segments
-                        if '.text' in [sec.name for sec in s.sections]][0]
+                        if '.text' in [sec.section_name for sec in s.sections]][0]
         text_segment.p_flags = 7
 
         # Save the packed elf
@@ -84,7 +87,7 @@ class ELFPacker:
         :return: A string with comma's separating each byte representing the lookup table
         """
         table = []
-        selected_functions = [f for f in self.list_functions() if f.name in function_list]
+        selected_functions = [f for f in self.list_functions() if f.name in [x.name for x in function_list]]
         for function in selected_functions:
             entry = self._get_table_entry(function)
             entry_str = ','.join("0x{:02x}".format(x) for x in entry)
@@ -102,7 +105,7 @@ class ELFPacker:
         :return: A bytearray containing a single entry to the decryption lookup table
         """
         # Encrypt and store first bytes
-        start_addr = function.start - self._pie_offset
+        start_addr = function.start_addr - self._pie_offset
         end_addr = start_addr + BYTES_TO_SAVE
         bytes_to_save = self.binary.get_data_segment(start_addr, end_addr)
 
@@ -156,7 +159,7 @@ class ELFPacker:
 
         # Assemble the loader
         output = f"{loader_file}.out"
-        check_output(['nasm', loader_file, '-o', output])
+        check_output(['nasm', f"{loader_file}.new", '-o', output])
 
         # Read the bytecode of the assembled loader
         loader_bytes = bytearray(open(output, 'rb').read())
@@ -165,9 +168,14 @@ class ELFPacker:
 
     def _write_new_preamble(self, index, function, decryption_addr):
         offset = pack('I', index)
-        # TODO: Why is this 5 again??
-        jump = pack('I', (decryption_addr - self._pie_offset) - (function.start_addr - self._pie_offset) - 5)
 
+        # Calculate the offset of the function based on the relative position
+        preamble_offset = len(PREAMBLE_BYTECODE) - 2  # 'jmp rax' is 2 bytes, which needs to be removed
+        decr = decryption_addr - self._pie_offset
+        start = function.start_addr - self._pie_offset
+        jump = pack('I', decr - start - preamble_offset)
+
+        # Modify the bytecode to take the relative positions
         bytecode = PREAMBLE_BYTECODE.copy()
         bytecode[1:5] = offset
         bytecode[9:13] = jump
