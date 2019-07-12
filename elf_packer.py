@@ -167,6 +167,14 @@ class ELFPacker:
         return loader_bytes
 
     def _write_new_preamble(self, index, function, decryption_addr):
+        """
+        Replaces the initial few bytes of each encrypted function with bytecode used to jump into the
+        decryption routine.
+
+        :param index: The index of the function within the lookup table
+        :param function: The function object being encrypted
+        :param decryption_addr: The address of the decryption routine within the binary
+        """
         offset = pack('I', index)
 
         # Calculate the offset of the function based on the relative position
