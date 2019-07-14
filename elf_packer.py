@@ -15,9 +15,9 @@ PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,                # pu
 
 class ELFPacker:
     def __init__(self, binary):
-        print(os.getcwd())
         self.filename = binary
         self.binary = ELF(binary)
+        self.functions = None
 
         # If the binary is not position independent, it starts at this set offset
         self._pie_offset = 0 if self.binary.e_type == ELFFileType.ET_DYN else 0x400000
@@ -28,7 +28,9 @@ class ELFPacker:
 
         :return: A list of Function objects with the binary
         """
-        return self.binary.list_functions()
+        if self.functions is None:
+            self.functions = self.binary.list_functions()
+        return self.functions
 
     def encrypt(self, encryption_key, function_list):
         """

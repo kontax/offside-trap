@@ -5,7 +5,7 @@
     a. ~~Modify loader.nasm to point to [rip-(instructions so far)-(decrypt_offset)+(func_offset)~~
     b. ~~Change table in poc.py to use offsets~~
 3. ~~Fix limit on function count~~
-4. Encrypt without symbols
+4. ~~Encrypt without symbols~~
 5. Implement RC4
 6. Modify the ELF parser
     a. Add program header and section header classes to the ELF class, and clean up the add segment code

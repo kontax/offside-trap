@@ -1,5 +1,5 @@
+import sys
 from argparse import ArgumentParser
-
 from random import Random
 
 from elf_packer import ELFPacker
@@ -74,14 +74,15 @@ if __name__ == '__main__':
     if args.list:
         for symbol in packer.list_functions():
             print(symbol)
-        exit()
+        exit(0)
 
     # Otherwise encrypt the binary with a specified or random key
     if args.encrypt:
         rnd = Random()
         key = args.key if args.key is not None else rnd.randint(0, 100)
         all_functions = packer.list_functions()
-        # TODO: Error checking for missing functions
         functions = [f for f in all_functions if f.name in args.function or args.all]
-        #functions = args.function if not args.all else packer.list_functions()
+        if len(functions) != len(args.function):
+            print(f"Not all functions were found within the binary. Try again with the -l flag.", file=sys.stderr)
+            exit(-1)
         packer.encrypt(key, functions)
