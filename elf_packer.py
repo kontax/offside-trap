@@ -53,12 +53,13 @@ class ELFPacker:
         segment = self.binary.append_loadable_segment(null_data)
 
         # Set up and assemble the encryption/decryption routines
-        loader = self._assemble_loader(table, segment)
+        loader = self._assemble_loader(table, segment, encryption_key)
 
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
         # Finds the first occurrence of this sequence of bytes, which starts with the bytecode PSQ
-        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr
+        # TODO: For some reason, the first 11 bytes are in use
+        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr - 0xb
         i = 0
         while i < len(function_list):
             self._write_new_preamble(i, function_list[i], decryption_addr)
@@ -130,12 +131,13 @@ class ELFPacker:
         for j in range(start, end):
             self.binary.data[j] = self.binary.data[j] ^ encryption_key
 
-    def _assemble_loader(self, table, segment):
+    def _assemble_loader(self, table, segment, key):
         """
         Assembles the encryption/decryption routine loader after replacing placeholder values with those calculated
         within the binary and selected functions, and returns the bytecode of the assembled code.
         :param table: The reference table used to lookup encrypted function details
         :param segment: The segment created to load the bytecode into
+        :param key: Encryption key used to encrypt/decrypt the data
         :return: A bytearray containing the bytecode of the assembled loader
         """
         loader_file = 'asm/loader.asm'
@@ -145,7 +147,8 @@ class ELFPacker:
 
         loader = loader.replace("#TEXT_START#", f"{hex(text.sh_addr)}") \
             .replace("#TEXT_LEN#", f"{hex(text.sh_size)}") \
-            .replace("#OEP#", f"{hex(self.binary.e_entry)}")
+            .replace("#OEP#", f"{hex(self.binary.e_entry)}") \
+            .replace("#KEY#", f"{hex(key)}")
 
         # Load the default preamble bytes into the loader
         preamble = PREAMBLE_BYTECODE.copy()

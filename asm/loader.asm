@@ -4,9 +4,9 @@
 %define text_start  #TEXT_START#        ; Address of text section
 %define text_len    #TEXT_LEN#          ; Length of text section
 %define oep         #OEP#               ; Original entry point
-%define bc          15                  ; Bytecount of overwritten bytes at start of function
+%define bc          15                  ; Byte count of overwritten bytes at start of function
 %define length      16                  ; Entry point in table of the  total length of the function being decrypted
-%define ret_func    24                  ; Entry point in table of the adderss of the function being decrypted
+%define ret_func    24                  ; Entry point in table of the address of the function being decrypted
 %define tbl_sz      32                  ; Full size of each entry within the table in bytes
 
 bin_offset: dq #BIN_OFFSET#             ; Offset of the loader within the binary
@@ -72,7 +72,7 @@ decrypt:
     cld                                 ; Set direction flag to increment RDI
     .decrypt:
         lodsb                           ; Load a byte into AX from address in RDI and increment
-        xor al, 0xa5                    ; XOR it with the key
+        xor al, #KEY#                   ; XOR it with the key
         stosb                           ; Store the byte back in the address in RSI and increment
         loop .decrypt                   ; Loop and decrement RCX until 0
 
@@ -132,7 +132,7 @@ encrypt:
     cld                                 ; Set the direction flag to increment RDI
     .encrypt:
         lodsb                           ; Load a byte into AX
-        xor al, 0xa5                    ; XOR it with the key
+        xor al, #KEY#                   ; XOR it with the key
         stosb                           ; Store the byte back in the address
         loop .encrypt                   ; Loop and decrement RCX until 0
 
