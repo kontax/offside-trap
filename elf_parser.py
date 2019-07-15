@@ -218,6 +218,7 @@ class ELF:
             s.load_symbols(self.symbols)
 
         self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
+        self._set_headers()
 
     def list_functions(self):
         """
@@ -242,7 +243,7 @@ class ELF:
             if len(self.symbols) > 0:
                 func_symbols = [Function(fn.name, fn.st_value, fn.st_size)
                                 for fn in text.symbols
-                                if fn.st_info.st_type == SymbolType.STT_FUNC]   # All functions
+                                if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
                 return func_symbols
 
             else:
@@ -256,7 +257,7 @@ class ELF:
         :return: A Section object with the name specified
         """
         sections = [x for x in self.sections if x.section_name == name]
-        assert(len(sections) == 1)
+        assert (len(sections) == 1)
         return sections[0]
 
     def get_data_segment(self, start_addr, end_addr):
@@ -296,23 +297,21 @@ class ELF:
 
         # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
         if self.linking_method == ELFLinkingMethod.DYNAMIC:
-            phdr = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
-            phdr.p_offset = start
-            phdr.p_vaddr = self.virtual_base + start
+            self.phdr.p_offset = start
+            self.phdr.p_vaddr = self.virtual_base + start
 
             # Get the PT_LOAD segment which loads the program header into memory
             ph_load_segment = [x for x in self.segments
                                if x.p_offset <= old_start <= x.p_offset + x.p_filesz
                                and x.p_type == ProgramType.PT_LOAD][0]
-            ph_load_segment.p_filesz += phdr.p_filesz
-            ph_load_segment.p_memsz += phdr.p_memsz
+            ph_load_segment.p_filesz += self.phdr.p_filesz
+            ph_load_segment.p_memsz += self.phdr.p_memsz
 
             # Increase size of the PT_PHDR segment
-            phdr.p_filesz += self.e_phentsize
-            phdr.p_memsz += self.e_phentsize
+            self.phdr.p_filesz += self.e_phentsize
+            self.phdr.p_memsz += self.e_phentsize
         else:
-            phdr = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
-            ph_load_segment = phdr
+            ph_load_segment = self.phdr
 
         # Null out the old header
         # This isn't strictly necessary but good to clean up
@@ -328,12 +327,20 @@ class ELF:
         self._full_data[offset:offset + self.e_phentsize] = packed
         self.e_phnum += 1
 
-        ph_load_segment.p_filesz += phdr.p_filesz
-        ph_load_segment.p_memsz += phdr.p_memsz
+        ph_load_segment.p_filesz += self.phdr.p_filesz
+        ph_load_segment.p_memsz += self.phdr.p_memsz
 
         return new_segment
 
     def _create_new_segment(self, data):
+        """
+        Creates a new Segment object at the correct alignment/offset within the binary and populates the header with
+        the correct values and data. This also appends the data into the correct place after the binary's data.
+        of the ELF binary.
+
+        :param data: The data to load into the Segment
+        :return: A new Segment object with the data/header values populated
+        """
 
         last_segment = sorted(self.segments, key=lambda x: x.p_offset + x.p_filesz)[-1]
         end_addr = len(self.data)
@@ -370,11 +377,20 @@ class ELF:
         return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
 
     def _get_gap_segment(self, size_needed):
+        """
+        Extracts a segment which has an unused gap between it and the next segment large enough to fit in the
+        new data that will be placed there.
 
-        # TODO: If there is a gap after the program header large enough, then that is fine
+        :param size_needed: The size of the data that needs to fit in the gap
+        :return: A tuple containing the segment, plus it's closest next segment in the form (segment, closest_segment)
+        """
+
+        # Sort the segments by their location in the file.
         sorted_segments = [x for x in self.segments if x.p_filesz > 0]
         sorted_segments.sort(key=lambda x: x.p_offset)
         gap_segment = None
+
+        # Loop through each segment and determine the size of the gap between them
         for segment in sorted_segments:
 
             # Find the closest segment
@@ -384,16 +400,14 @@ class ELF:
                  if x.p_offset >= segment.p_offset + segment.p_filesz],
                 key=lambda x: x.p_offset)), None)
 
-            if closest_segment is None:
-                continue
-
-            # Check if the gap between is big enough
             segment_end_addr = segment.p_offset + segment.p_filesz
-            if closest_segment.p_offset - segment_end_addr < size_needed:
-                continue
 
-            # Make sure no other segments are in the way
-            if segment.is_segment_gap_overlapped(closest_segment, self.segments):
+            # 1. Make sure there is a segment after the current one
+            # 2. Check if the gap between is big enough
+            # 3. Make sure no other segments are in the way
+            if closest_segment is None or \
+                    closest_segment.p_offset - segment_end_addr < size_needed or \
+                    segment.is_segment_gap_overlapped(closest_segment, self.segments):
                 continue
 
             # First time then save
@@ -412,6 +426,14 @@ class ELF:
 
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
+        """
+        Parses the bytearray data to extract the header values.
+
+        :param data: The bytearray containing the data of the binary.
+        :param header_size: The size of the ELF header in bytes.
+        :param hdr_struct: The code used to parse the header within struct.pack()
+        :return: A set of ELF header values for the current binary.
+        """
         header = unpack(hdr_struct, data[:header_size])
         return (
             ELFIdent(header[0]),  # e_ident
@@ -434,7 +456,21 @@ class ELF:
     def _extract_header_names(data):
         return [x for x in data.decode("utf-8").split('\0')]
 
+    def _set_headers(self):
+        """
+        Sets the program header and section header as properties within the ELF object.
+        """
+
+        # Program Header
+        if self.linking_method == ELFLinkingMethod.DYNAMIC:
+            self.phdr = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
+        else:
+            self.phdr = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+
+        # TODO: Section Header
+
     def _repack_header(self):
+        """ Re-packs the header once edits have been made, so as to propogate any changes within the binary data """
         repack_header(self._full_data, 0, self.e_ehsize, self.header, self.hdr_struct)
 
 
@@ -983,6 +1019,7 @@ class SymbolInfo:
 
 class Function:
     """ A helper class for returning details of specific functions within the binary """
+
     def __init__(self, name, offset, size):
         """
         Initialises a new Function given it's name, offset and size.
