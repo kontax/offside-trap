@@ -15,4 +15,4 @@
 7. Re-encrypt functions on calling another function
 8. Reduce size (or need completely) of table
 9. Encrypt bytes before adding them to the table
-10. Remove the necessity of making the text section writable
+10. Remove the necessity of making the text section writable (entry doesn't work on PIE)
