@@ -8,10 +8,10 @@
 4. ~~Encrypt without symbols~~
 5. Implement RC4
 6. Modify the ELF parser
-    a. Add program header and section header classes to the ELF class, and clean up the add segment code
-    b. Add symbol tables to the main ELF class
-    c. ~~Add references to sections within segments, symbols within sections etc.~~
-    d. Look at making symbols easier to work with
+    1. ~~Add program header and section header classes to the ELF class, and clean up the add segment code~~
+    2. ~~Add symbol tables to the main ELF class~~
+    3. ~~Add references to sections within segments, symbols within sections etc.~~
+    4. ~~Look at making symbols easier to work with~~
 7. Re-encrypt functions on calling another function
 8. Reduce size (or need completely) of table
 9. Encrypt bytes before adding them to the table
