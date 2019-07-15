@@ -16,3 +16,8 @@
 8. Reduce size (or need completely) of table
 9. Encrypt bytes before adding them to the table
 10. Remove the necessity of making the text section writable (entry doesn't work on PIE)
+11. Find some malware
+    1. http://contagiodump.blogspot.com/
+    2. https://virusshare.com/
+    3. https://developers.virustotal.com/
+12. Figure out why there are differences in the outputs of cal
