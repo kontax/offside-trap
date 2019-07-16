@@ -51,7 +51,7 @@ def parse_arguments():
 
     # Encrypting the binary
     parser.add_argument('-e', '--encrypt', action='store_true', help="Encrypt the binary")
-    parser.add_argument('-k', '--key', help='The RC4 key used to encrypt the binary')
+    parser.add_argument('-k', '--key', type=int, help='The RC4 key used to encrypt the binary')
     parser.add_argument('-r', '--random', action='store_true', help='Choose a random key to encrypt with')
     parser.add_argument('-f', '--function', action='append', help='A function to encrypt (list multiple if required)')
     parser.add_argument('-a', '--all', action='store_true', help='Encrypt all functions')
@@ -81,8 +81,8 @@ if __name__ == '__main__':
         rnd = Random()
         key = args.key if args.key is not None else rnd.randint(0, 100)
         all_functions = packer.list_functions()
-        functions = [f for f in all_functions if f.name in args.function or args.all]
-        if len(functions) != len(args.function):
+        functions = [f for f in all_functions if args.all or f.name in args.function]
+        if args.function is not None and len(functions) != len(args.function):
             print(f"Not all functions were found within the binary. Try again with the -l flag.", file=sys.stderr)
             exit(-1)
         packer.encrypt(key, functions)

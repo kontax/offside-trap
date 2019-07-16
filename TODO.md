@@ -21,3 +21,8 @@
     2. https://virusshare.com/
     3. https://developers.virustotal.com/
 12. Figure out why there are differences in the outputs of cal
+13. Requirements:
+    1. python
+    2. virtualenv
+    3. nasm
+    4. radare2

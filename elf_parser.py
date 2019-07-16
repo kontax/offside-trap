@@ -229,25 +229,25 @@ class ELF:
         :return: A collection of Function objects tuples within the text section and their addresses
         """
 
-        # Analyse the functions using radare
-        try:
-            self.r2.cmd('aaa')
-            functions = self.r2.cmdJ('aflj')
-            return [Function(x.name, x.offset, x.size) for x in functions]
+        # When symbols are available
+        text = self.get_section('.text')
 
-        # If r2 is not on the system, go for the less accurate method of searching the symbols, or call instructions
-        except FileNotFoundError:
-            text = self.get_section('.text')
+        if len(self.symbols) > 0:
+            func_symbols = [Function(fn.symbol_name, fn.st_value, fn.st_size)
+                            for fn in text.symbols
+                            if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
+            return func_symbols
 
-            # When symbols are available
-            if len(self.symbols) > 0:
-                func_symbols = [Function(fn.name, fn.st_value, fn.st_size)
-                                for fn in text.symbols
-                                if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
-                return func_symbols
+        else:
+            # Analyse the functions using radare
+            try:
+                self.r2.cmd('aaa')
+                functions = self.r2.cmdJ('aflj')
+                return [Function(x.name, x.offset, x.size) for x in functions]
 
-            else:
-                raise RuntimeError("Radare2 was not found, and the binary is stripped. Cannot extract functions")
+            # If r2 is not on the system, go for the less accurate method of searching the symbols, or call instructions
+            except FileNotFoundError:
+                raise FileNotFoundError("Radare2 was not found, and the binary is stripped. Cannot extract functions")
 
     def get_section(self, name):
         """

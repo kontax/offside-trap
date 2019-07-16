@@ -3,7 +3,7 @@ from struct import unpack, pack
 from subprocess import check_output
 
 from elf_enums import ELFFileType
-from elf_parser import ELF
+from elf_parser import ELF, Function
 
 BYTES_TO_SAVE = 0xf
 TABLE_ENTRY_SIZE = 0x20
@@ -40,9 +40,20 @@ class ELFPacker:
         :param encryption_key: The key used to encrypt the selected functions
         :param function_list: The list of functions to encrypt
         """
+        function_list.sort(key=lambda f: f.name)
+        overlapping = self._get_overlapping_functions(function_list)
         print(f"Encrypting the following functions in {self.binary} with {encryption_key}")
         for f in function_list:
-            print(f"[-] {f}")
+            if f.size < BYTES_TO_SAVE:
+                print(f"[-] {f} : Function is too small")
+                function_list.remove(f)
+            elif f in overlapping:
+                print(f"[-] {f} : Function is overlapping with another")
+            else:
+                print(f"[+] {f}")
+
+        # Remove any functions that overlap
+        function_list = list(set(function_list) - set(overlapping))
 
         # Construct the table used for reference in the decryption/encryption routines
         table = self._get_reference_table(function_list)
@@ -64,7 +75,8 @@ class ELFPacker:
         decryption_addr = loader.find(b'PSQ') + segment.p_vaddr - 0xb
         i = 0
         while i < len(function_list):
-            self._write_new_preamble(i, function_list[i], decryption_addr)
+            print(f"{sorted(function_list, key=lambda fn: fn.name)[i]}: {i}")
+            self._write_new_preamble(i, sorted(function_list, key=lambda fn: fn.name)[i], decryption_addr)
             i += 1
 
         # Place the bytecode of the assembled loader into the newly created segment
@@ -91,7 +103,11 @@ class ELFPacker:
         """
         table = []
         selected_functions = [f for f in self.list_functions() if f.name in [x.name for x in function_list]]
+        selected_functions.sort(key=lambda f: f.name)
+        i = 0
         for function in selected_functions:
+            print(f"{function.name}: {i}")
+            i+=1
             entry = self._get_table_entry(function)
             entry_str = ','.join("0x{:02x}".format(x) for x in entry)
             table.append(entry_str)
@@ -198,3 +214,31 @@ class ELFPacker:
         end = start + BYTES_TO_SAVE
         assert (BYTES_TO_SAVE == len(bytecode))
         self.binary.data[start:end] = bytecode
+
+    @staticmethod
+    def _get_overlapping_functions(function_list):
+        """
+        Pulls out any functions that may be overlapping. This may occur when the function analysis does not correctly
+        deduce where a function begins or ends.
+
+        :param function_list: The original list of functions
+        :return: A list of functions that are overlapping
+        """
+        overlapping = []
+        for f1 in function_list:
+            for f2 in function_list:
+                if f1 is f2:
+                    continue
+                if (f1.start_addr > f2.start_addr and f1.end_addr < f2.end_addr) or \
+                        (f2.start_addr < f1.start_addr < f2.end_addr) or \
+                        (f1.start_addr < f2.start_addr and f1.end_addr > f2.end_addr) or \
+                        (f1.start_addr < f2.start_addr < f1.end_addr):
+                    if f1 not in overlapping:
+                        overlapping.append(f1)
+                    if f2 not in overlapping:
+                        overlapping.append(f2)
+
+        for f in overlapping:
+            function_list.remove(f)
+
+        return overlapping
