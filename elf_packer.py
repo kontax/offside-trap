@@ -1,4 +1,5 @@
 import os
+import stat
 from struct import unpack, pack
 from subprocess import check_output
 
@@ -90,9 +91,12 @@ class ELFPacker:
                         if '.text' in [sec.section_name for sec in s.sections]][0]
         text_segment.p_flags = 7
 
-        # Save the packed elf
+        # Save the packed elf and set the executable bit
         with open(f"{self.filename}.packed", "wb") as f:
             f.write(self.binary.data)
+
+        st = os.stat(f"{self.filename}.packed")
+        os.chmod(f"{self.filename}.packed", st.st_mode | stat.S_IEXEC)
 
     def _get_reference_table(self, function_list):
         """
