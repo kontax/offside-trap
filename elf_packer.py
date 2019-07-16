@@ -8,10 +8,10 @@ from elf_parser import ELF, Function
 
 BYTES_TO_SAVE = 0xf
 TABLE_ENTRY_SIZE = 0x20
-PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,                # push [table_offset]
-                               0x50,                                        # push rax
-                               0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00,    # lea rax, [addr]
-                               0xff, 0xe0])                                 # jmp rax
+PREAMBLE_BYTECODE = bytearray([0x68, 0x00, 0x00, 0x00, 0x00,  # push [table_offset]
+                               0x50,  # push rax
+                               0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00,  # lea rax, [addr]
+                               0xff, 0xe0])  # jmp rax
 
 
 class ELFPacker:
@@ -43,18 +43,28 @@ class ELFPacker:
         """
         function_list.sort(key=lambda f: f.name)
         overlapping = self._get_overlapping_functions(function_list)
+        to_remove = []
         print(f"Encrypting the following functions in {self.binary} with {encryption_key}")
         for f in function_list:
+            if f.start_addr <= 0xd878 <= f.end_addr:
+                print(f"**** FINI: {f}")
             if f.size < BYTES_TO_SAVE:
                 print(f"[-] {f} : Function is too small")
-                function_list.remove(f)
-            elif f in overlapping:
+                to_remove.append(f)
+            elif f in to_remove:
                 print(f"[-] {f} : Function is overlapping with another")
+            elif f.name in ["_start", "_fini", "__libc_csu_init", "__libc_csu_fini"]:
+                print(f"[-] {f} : Ignoring")
+                to_remove.append(f)
             else:
                 print(f"[+] {f}")
 
-        # Remove any functions that overlap
-        function_list = list(set(function_list) - set(overlapping))
+        to_remove.extend(overlapping)
+
+        # Remove any functions that overlap or have been flagged
+        #function_list = list(set(function_list) - set(to_remove))
+        for f in to_remove:
+            function_list.remove(f)
 
         # Construct the table used for reference in the decryption/encryption routines
         table = self._get_reference_table(function_list)
@@ -106,12 +116,10 @@ class ELFPacker:
         :return: A string with comma's separating each byte representing the lookup table
         """
         table = []
-        selected_functions = [f for f in self.list_functions() if f.name in [x.name for x in function_list]]
-        selected_functions.sort(key=lambda f: f.name)
         i = 0
-        for function in selected_functions:
+        for function in function_list:
             print(f"{function.name}: {i}")
-            i+=1
+            i += 1
             entry = self._get_table_entry(function)
             entry_str = ','.join("0x{:02x}".format(x) for x in entry)
             table.append(entry_str)
