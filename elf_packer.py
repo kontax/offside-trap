@@ -4,7 +4,7 @@ from struct import unpack, pack
 from subprocess import check_output
 
 from elf_enums import ELFFileType
-from elf_parser import ELF, Function
+from elf_parser import ELF
 
 BYTES_TO_SAVE = 0xf
 TABLE_ENTRY_SIZE = 0x20
@@ -41,7 +41,7 @@ class ELFPacker:
         :param encryption_key: The key used to encrypt the selected functions
         :param function_list: The list of functions to encrypt
         """
-        function_list.sort(key=lambda f: f.name)
+        function_list.sort(key=lambda fn: fn.name)
         overlapping = self._get_overlapping_functions(function_list)
         to_remove = []
         print(f"Encrypting the following functions in {self.binary} with {encryption_key}")
@@ -62,7 +62,6 @@ class ELFPacker:
         to_remove.extend(overlapping)
 
         # Remove any functions that overlap or have been flagged
-        #function_list = list(set(function_list) - set(to_remove))
         for f in to_remove:
             function_list.remove(f)
 
@@ -82,8 +81,8 @@ class ELFPacker:
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
         # Finds the first occurrence of this sequence of bytes, which starts with the bytecode PSQ
-        # TODO: For some reason, the first 11 bytes are in use
-        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr - 0xb
+        pre_entry_size = 0xb  # The size in bytes of the code prior to the entry function
+        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr - pre_entry_size
         i = 0
         while i < len(function_list):
             print(f"{sorted(function_list, key=lambda fn: fn.name)[i]}: {i}")
@@ -95,8 +94,8 @@ class ELFPacker:
         end = start + len(loader)
         self.binary.data[start:end] = loader
 
-        # Make text section writeable
-        # TODO: This shouldn't be necessary
+        # Make text section writeable - this is necessary as we cannot figure out the entry for PIE executables
+        # in order to call the m_protect syscall
         text_segment = [s for s in self.binary.segments
                         if '.text' in [sec.section_name for sec in s.sections]][0]
         text_segment.p_flags = 7

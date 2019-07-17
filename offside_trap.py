@@ -56,12 +56,12 @@ def parse_arguments():
     parser.add_argument('-f', '--function', action='append', help='A function to encrypt (list multiple if required)')
     parser.add_argument('-a', '--all', action='store_true', help='Encrypt all functions')
 
-    arglist = parser.parse_args()
+    arg_list = parser.parse_args()
 
     # Ensure args are valid
-    check_args(parser, arglist)
+    check_args(parser, arg_list)
 
-    return arglist
+    return arg_list
 
 
 if __name__ == '__main__':
