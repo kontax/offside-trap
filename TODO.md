@@ -26,3 +26,7 @@
     2. virtualenv
     3. nasm
     4. radare2
+14. Load program header into new segment
+    1. Figure out how to set original entry point for PIE binary from new entry
+    2. Modify offsets to all encryption/decryption code after header has been appended
+    3. Encrypt entire binary between elf header and new section (?)
