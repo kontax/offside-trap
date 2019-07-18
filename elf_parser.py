@@ -856,8 +856,8 @@ class Section:
         :param symbols: The full collection of symbols to check.
         """
         relevant_symbols = [x for x in symbols
-                            if x.st_value >= self.sh_offset
-                            and x.st_value + x.st_size <= self.sh_offset + self.sh_size]
+                            if x.st_value >= self.sh_addr
+                            and x.st_value + x.st_size <= self.sh_addr + self.sh_size]
         self._symbols.extend(relevant_symbols)
 
     def __str__(self):

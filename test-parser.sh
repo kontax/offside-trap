@@ -3,7 +3,7 @@ set -e
 
 function run_test() {
     #python poc.py > /dev/null
-    python offside_trap.py -er -f sym.add -f sym.mul -f sym.sub -f main test/test > /dev/null
+    python offside_trap.py -er -f add -f mul -f sub -f main test/test > /dev/null
     cp test/test.packed ./test-bin
     \ls -s ./test-bin
     chmod +x ./test-bin
