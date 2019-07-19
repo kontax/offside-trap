@@ -278,14 +278,50 @@ class ELF:
                         and s.p_offset <= self.phdr.p_offset
                         and s.p_offset + s.p_filesz >= self.phdr.p_offset + self.phdr.p_filesz][0]
 
+        # Check how much space is available until the next loadable segment
+        closest_segment = next(iter(sorted(
+            [x for x in self.segments
+             if x.p_type == ProgramType.PT_LOAD
+             and x.p_offset >= phdr_segment.p_offset + phdr_segment.p_filesz],
+            key=lambda x: x.p_offset)), None)
+
+        # Ensure we have enough space to add in a section
+        assert(closest_segment.p_offset - phdr_segment.p_offset + phdr_segment.p_filesz >= self.e_phentsize)
+        assert(closest_segment.p_vaddr - phdr_segment.p_vaddr + phdr_segment.p_memsz >= self.e_phentsize)
+
+        # Get the address range that will have to be moved
+        start = self.phdr.p_offset + self.e_phentsize * self.e_phnum
+        end = phdr_segment.p_offset + phdr_segment.p_filesz
+
+        # Modify the offset of all affected segments/sections/symbols
+        affected_segments = [s for s in self.segments
+                             if s.p_offset >= start
+                             and s.p_offset + s.p_filesz <= end]
+        affected_sections = [s for s in self.sections
+                             if s.sh_offset >= start
+                             and s.sh_offset + s.sh_size <= end]
+
+        affected_symbols = [s for s in self.symbols
+                            if start <= s.st_value <= end]
+
+        for segment in affected_segments:
+            segment.p_offset += self.e_phentsize
+            segment.p_vaddr += self.e_phentsize
+            segment.p_paddr += self.e_phentsize
+
+        for section in affected_sections:
+            section.sh_offset += self.e_phentsize
+            section.sh_addr += self.e_phentsize
+
+        for symbol in affected_symbols:
+            symbol.st_value += self.e_phentsize
+
+        # Shift all the data over by the same number of bytes after the old phdr
+        self.data[start + self.e_phentsize:end + self.e_phentsize] = self.data[start:end]
+
         # Increase the size of the segment to account for the new segment being added
         phdr_segment.p_filesz += self.e_phentsize
         phdr_segment.p_memsz += self.e_phentsize
-
-        # Shift any segments after the program header over by the size of an entry
-        marker = self.phdr.p_offset + self.phdr.p_filesz
-        self._shift_segments(marker)
-        self._shift_sections(marker)
 
         # Create new segment
         new_segment = self._create_new_segment(size)
@@ -297,34 +333,11 @@ class ELF:
         self._full_data[offset:offset + self.e_phentsize] = packed
         self.e_phnum += 1
 
+        # Increase the size of the header section
+        #self.phdr.p_memsz += self.e_phentsize
+        #self.phdr.p_filesz += self.e_phentsize
+
         return new_segment
-
-    def _shift_segments(self, marker):
-        next_segment = [s for s in self.segments if s.p_offset == marker][0]
-        moved_segments = []
-        while next_segment is not None:
-            moved_segments.append(next_segment)
-            next_segment.p_offset += self.e_phentsize
-            next_segment.p_vaddr += self.e_phentsize
-            marker = next_segment.p_offset + next_segment.p_filesz
-            try:
-                next_segment = [s for s in self.segments if s.p_offset == marker][0]
-            except IndexError:
-                next_segment = None
-
-        for segment in moved_segments:
-            self.data[segment.p_offset:segment.p_offset + segment.p_filesz] = segment.data
-
-    def _shift_sections(self, marker):
-        next_section = [s for s in self.sections if s.sh_offset == marker][0]
-        while next_section is not None:
-            next_section.sh_offset += self.e_phentsize
-            next_section.sh_addr += self.e_phentsize
-            marker = next_section.sh_offset + next_section.sh_size
-            try:
-                next_section = [s for s in self.sections if s.sh_offset == marker][0]
-            except IndexError:
-                next_section = None
 
     def append_loadable_segment(self, data):
         """
