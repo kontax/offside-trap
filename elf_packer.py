@@ -73,7 +73,7 @@ class ELFPacker:
 
         # Create a segment to load the routines in
         null_data = b'\x00' * (table_size + 400)
-        segment = self.binary.append_loadable_segment(null_data)
+        segment = self.binary.append_loadable_segment_2(table_size + 400)
 
         # Set up and assemble the encryption/decryption routines
         loader = self._assemble_loader(table, segment, encryption_key)

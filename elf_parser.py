@@ -270,6 +270,62 @@ class ELF:
         """
         return self.data[start_addr:end_addr]
 
+    def append_loadable_segment_2(self, size):
+
+        # Get the segment loading the program header
+        phdr_segment = [s for s in self.segments
+                        if s.p_type == ProgramType.PT_LOAD
+                        and s.p_offset <= self.phdr.p_offset
+                        and s.p_offset + s.p_filesz >= self.phdr.p_offset + self.phdr.p_filesz][0]
+
+        # Increase the size of the segment to account for the new segment being added
+        phdr_segment.p_filesz += self.e_phentsize
+        phdr_segment.p_memsz += self.e_phentsize
+
+        # Shift any segments after the program header over by the size of an entry
+        marker = self.phdr.p_offset + self.phdr.p_filesz
+        self._shift_segments(marker)
+        self._shift_sections(marker)
+
+        # Create new segment
+        new_segment = self._create_new_segment(size)
+        packed = pack(new_segment.hdr_struct, *new_segment.header)
+        self.segments.append(new_segment)
+
+        # Add header to end of header section
+        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
+        self._full_data[offset:offset + self.e_phentsize] = packed
+        self.e_phnum += 1
+
+        return new_segment
+
+    def _shift_segments(self, marker):
+        next_segment = [s for s in self.segments if s.p_offset == marker][0]
+        moved_segments = []
+        while next_segment is not None:
+            moved_segments.append(next_segment)
+            next_segment.p_offset += self.e_phentsize
+            next_segment.p_vaddr += self.e_phentsize
+            marker = next_segment.p_offset + next_segment.p_filesz
+            try:
+                next_segment = [s for s in self.segments if s.p_offset == marker][0]
+            except IndexError:
+                next_segment = None
+
+        for segment in moved_segments:
+            self.data[segment.p_offset:segment.p_offset + segment.p_filesz] = segment.data
+
+    def _shift_sections(self, marker):
+        next_section = [s for s in self.sections if s.sh_offset == marker][0]
+        while next_section is not None:
+            next_section.sh_offset += self.e_phentsize
+            next_section.sh_addr += self.e_phentsize
+            marker = next_section.sh_offset + next_section.sh_size
+            try:
+                next_section = [s for s in self.sections if s.sh_offset == marker][0]
+            except IndexError:
+                next_section = None
+
     def append_loadable_segment(self, data):
         """
         Appends a new segment with the size of the data specified, modifying any relevant pointers required.
@@ -332,13 +388,13 @@ class ELF:
 
         return new_segment
 
-    def _create_new_segment(self, data):
+    def _create_new_segment(self, size):
         """
         Creates a new Segment object at the correct alignment/offset within the binary and populates the header with
         the correct values and data. This also appends the data into the correct place after the binary's data.
         of the ELF binary.
 
-        :param data: The data to load into the Segment
+        :param size: The length of the data to load into the Segment
         :return: A new Segment object with the data/header values populated
         """
 
@@ -362,7 +418,7 @@ class ELF:
         self.data[end_addr:p_offset] = b'\x00' * pad_len
 
         # Add data to elf
-        self.data[p_offset:p_offset] = data
+        self.data[p_offset:p_offset] = b'\x00' * size
 
         header = (
             p_type,
@@ -370,8 +426,8 @@ class ELF:
             p_offset,
             p_vaddr,
             p_paddr,
-            len(data),  # p_filesz
-            len(data),  # p_memsz
+            size,  # p_filesz
+            size,  # p_memsz
             p_align
         )
         return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
@@ -465,7 +521,18 @@ class ELF:
         if self.linking_method == ELFLinkingMethod.DYNAMIC:
             self.phdr = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
         else:
-            self.phdr = [x for x in self.segments if x.p_offset <= self.e_phoff <= x.p_offset + x.p_filesz][0]
+            # Create a new "ghost" segment containing the correct data, without adding it to the segment list
+            header = (
+                6,                                # p_type
+                4,                                # p_flags
+                self.e_phoff,                     # p_offset
+                self.e_phoff,                     # p_vaddr
+                self.e_phoff,                     # p_paddr
+                self.e_phentsize * self.e_phnum,  # p_filesz
+                self.e_phentsize * self.e_phnum,  # p_memsz
+                8                                 # p_align
+            )
+            self.phdr = Segment(self._full_data, 0, self.e_phoff, self.e_phentsize, header)
 
         # TODO: Section Header
 
