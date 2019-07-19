@@ -7,7 +7,7 @@
 3. ~~Fix limit on function count~~
 4. ~~Encrypt without symbols~~
 5. Implement RC4
-6. Modify the ELF parser
+6. ~~Modify the ELF parser~~
     1. ~~Add program header and section header classes to the ELF class, and clean up the add segment code~~
     2. ~~Add symbol tables to the main ELF class~~
     3. ~~Add references to sections within segments, symbols within sections etc.~~

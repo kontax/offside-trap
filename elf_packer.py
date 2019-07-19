@@ -80,9 +80,9 @@ class ELFPacker:
 
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
-        # Finds the first occurrence of this sequence of bytes, which starts with the bytecode PSQ
-        pre_entry_size = 0xb  # The size in bytes of the code prior to the entry function
-        decryption_addr = loader.find(b'PSQ') + segment.p_vaddr - pre_entry_size
+        search_str = b"\x58\x68\xff\xff\xff\x0f\x68\xff\xff\xff\x0f"  # Bytecode at start of encryption function
+        print(loader.find(search_str))
+        decryption_addr = loader.find(search_str) + segment.p_vaddr
         i = 0
         while i < len(function_list):
             print(f"{sorted(function_list, key=lambda fn: fn.name)[i]}: {i}")
