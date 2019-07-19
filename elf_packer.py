@@ -44,20 +44,20 @@ class ELFPacker:
         function_list.sort(key=lambda fn: fn.name)
         overlapping = self._get_overlapping_functions(function_list)
         to_remove = []
-        print(f"Encrypting the following functions in {self.binary} with {encryption_key}")
+        print(f"[*] Encrypting the following functions in {self.binary} with {encryption_key}")
         for f in function_list:
-            if f.start_addr <= 0xd878 <= f.end_addr:
-                print(f"**** FINI: {f}")
             if f.size < BYTES_TO_SAVE:
-                print(f"[-] {f} : Function is too small")
+                print(f"\t[-] {f} : Function is too small")
                 to_remove.append(f)
             elif f in to_remove:
-                print(f"[-] {f} : Function is overlapping with another")
+                print(f"\t[-] {f} : Function is overlapping with another")
             elif f.name in ["_start", "_fini", "__libc_csu_init", "__libc_csu_fini"]:
-                print(f"[-] {f} : Ignoring")
+                print(f"\t[-] {f} : Ignoring")
                 to_remove.append(f)
             else:
-                print(f"[+] {f}")
+                print(f"\t[+] {f}")
+
+        print()
 
         to_remove.extend(overlapping)
 
@@ -81,11 +81,9 @@ class ELFPacker:
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
         search_str = b"\x58\x68\xff\xff\xff\x0f\x68\xff\xff\xff\x0f"  # Bytecode at start of encryption function
-        print(loader.find(search_str))
         decryption_addr = loader.find(search_str) + segment.p_vaddr
         i = 0
         while i < len(function_list):
-            print(f"{sorted(function_list, key=lambda fn: fn.name)[i]}: {i}")
             self._write_new_preamble(i, sorted(function_list, key=lambda fn: fn.name)[i], decryption_addr)
             i += 1
 
@@ -94,11 +92,11 @@ class ELFPacker:
         end = start + len(loader)
         self.binary.data[start:end] = loader
 
-        # Make text section writeable - this is necessary as we cannot figure out the entry for PIE executables
-        # in order to call the m_protect syscall
-        text_segment = [s for s in self.binary.segments
-                        if '.text' in [sec.section_name for sec in s.sections]][0]
-        text_segment.p_flags = 7
+        # Modify the entry to point into the new segment we've created, allowing for the text section to
+        # become RWX using mprotect()
+        new_entry = segment.p_vaddr + 8
+        print(f"[*] Entry moved from {hex(self.binary.e_entry)} to {hex(new_entry)}")
+        self.binary.e_entry = new_entry
 
         # Save the packed elf and set the executable bit
         with open(f"{self.filename}.packed", "wb") as f:
@@ -117,7 +115,6 @@ class ELFPacker:
         table = []
         i = 0
         for function in function_list:
-            print(f"{function.name}: {i}")
             i += 1
             entry = self._get_table_entry(function)
             entry_str = ','.join("0x{:02x}".format(x) for x in entry)
@@ -170,19 +167,20 @@ class ELFPacker:
         :return: A bytearray containing the bytecode of the assembled loader
         """
         loader_file = 'asm/loader.asm'
-        text = self.binary.get_section('.text')
+        text_segment = [s for s in self.binary.segments
+                        if '.text' in [sec.section_name for sec in s.sections]][0]
         with open(loader_file) as f:
             loader = f.read()
 
-        loader = loader.replace("#TEXT_START#", f"{hex(text.sh_addr)}") \
-            .replace("#TEXT_LEN#", f"{hex(text.sh_size)}") \
+        loader = loader.replace("#TEXT_START#", f"{hex(text_segment.p_vaddr)}") \
+            .replace("#TEXT_LEN#", f"{hex(text_segment.p_memsz)}") \
             .replace("#OEP#", f"{hex(self.binary.e_entry)}") \
             .replace("#KEY#", f"{hex(key)}")
 
         # Load the default preamble bytes into the loader
         preamble = PREAMBLE_BYTECODE.copy()
         loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble)) \
-            .replace("#BIN_OFFSET#", str(segment.p_vaddr))
+            .replace("#BIN_OFFSET#", str(hex(segment.p_vaddr)))
 
         # Prepend the table string to the loader
         loader = loader.replace("#TABLE#", table)

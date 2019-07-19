@@ -4,3 +4,10 @@
 0x555555561800 <__libc_csu_init>
 0x55555556b097 <end_decryption>
 0x55555556b119 <end_encryption>
+
+
+
+
+0x7ffff7fd4108 <_dl_start_user>
+0x555555559048 <enc_start>
+0x5555555590b1 <end_end>

@@ -12,6 +12,9 @@
 bin_offset: dq #BIN_OFFSET#             ; Offset of the loader within the binary
 
 entry:
+    ; Dummy entry for OEP
+    push 0x0fffffff
+
     ; Save the state of the program
     push rax
     push rdi
@@ -19,8 +22,16 @@ entry:
     push rdx
     push rcx
 
+    ; Calculate the return address
+    lea rdi, [bin_offset]               ; Store relative address of offset within the binary
+    sub rdi, [bin_offset]               ; Get the base of the binary within memory
+    add rdi, oep                        ; Original entry point of function
+    mov [rsp+0x28], rdi                 ; Return address function
+
     ; Call mprotect to make the text segment writable
-    mov rdi, text_start                 ; Start address
+    lea rdi, [bin_offset]               ; Relative address of segment
+    sub rdi, [bin_offset]               ; Start of memory map
+    add rdi, text_start                 ; Start address
     mov rsi, text_len                   ; Length of data
     mov rdx, 7                          ; RWX
     mov rax, 10                         ; mprotect syscall
@@ -33,7 +44,6 @@ entry:
     pop rdi
     pop rax
 
-    push oep
     ret
 
 
@@ -152,7 +162,7 @@ encrypt:
     lea rsi, [bin_offset]
     sub rsi, [bin_offset]
     lea rdi, [decrypt]
-    sub rdi, rsi                 ; Current address of decrypt
+    sub rdi, rsi                        ; Current address of decrypt
     sub rdi, [rbx+ret_func]             ;
     sub rdi, 13
 
