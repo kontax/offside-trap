@@ -270,136 +270,60 @@ class ELF:
         """
         return self.data[start_addr:end_addr]
 
-    def append_loadable_segment_2(self, size):
-
-        # Get the segment loading the program header
-        phdr_segment = [s for s in self.segments
-                        if s.p_type == ProgramType.PT_LOAD
-                        and s.p_offset <= self.phdr.p_offset
-                        and s.p_offset + s.p_filesz >= self.phdr.p_offset + self.phdr.p_filesz][0]
-
-        # Check how much space is available until the next loadable segment
-        closest_segment = next(iter(sorted(
-            [x for x in self.segments
-             if x.p_type == ProgramType.PT_LOAD
-             and x.p_offset >= phdr_segment.p_offset + phdr_segment.p_filesz],
-            key=lambda x: x.p_offset)), None)
-
-        # Ensure we have enough space to add in a section
-        assert(closest_segment.p_offset - phdr_segment.p_offset + phdr_segment.p_filesz >= self.e_phentsize)
-        assert(closest_segment.p_vaddr - phdr_segment.p_vaddr + phdr_segment.p_memsz >= self.e_phentsize)
-
-        # Get the address range that will have to be moved
-        start = self.phdr.p_offset + self.e_phentsize * self.e_phnum
-        end = phdr_segment.p_offset + phdr_segment.p_filesz
-
-        # Modify the offset of all affected segments/sections/symbols
-        affected_segments = [s for s in self.segments
-                             if s.p_offset >= start
-                             and s.p_offset + s.p_filesz <= end]
-        affected_sections = [s for s in self.sections
-                             if s.sh_offset >= start
-                             and s.sh_offset + s.sh_size <= end]
-
-        affected_symbols = [s for s in self.symbols
-                            if start <= s.st_value <= end]
-
-        for segment in affected_segments:
-            segment.p_offset += self.e_phentsize
-            segment.p_vaddr += self.e_phentsize
-            segment.p_paddr += self.e_phentsize
-
-        for section in affected_sections:
-            section.sh_offset += self.e_phentsize
-            section.sh_addr += self.e_phentsize
-
-        for symbol in affected_symbols:
-            symbol.st_value += self.e_phentsize
-
-        # Shift all the data over by the same number of bytes after the old phdr
-        self.data[start + self.e_phentsize:end + self.e_phentsize] = self.data[start:end]
-
-        # Increase the size of the segment to account for the new segment being added
-        phdr_segment.p_filesz += self.e_phentsize
-        phdr_segment.p_memsz += self.e_phentsize
-
-        # Create new segment
-        new_segment = self._create_new_segment(size)
-        packed = pack(new_segment.hdr_struct, *new_segment.header)
-        self.segments.append(new_segment)
-
-        # Add header to end of header section
-        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
-        self._full_data[offset:offset + self.e_phentsize] = packed
-        self.e_phnum += 1
-
-        # Increase the size of the header section
-        #self.phdr.p_memsz += self.e_phentsize
-        #self.phdr.p_filesz += self.e_phentsize
-
-        return new_segment
-
-    def append_loadable_segment(self, data):
+    def append_loadable_segment_3(self, size):
         """
-        Appends a new segment with the size of the data specified, modifying any relevant pointers required.
+        Appends a new segment of the size specified, modifying any relevant pointers required.
 
-        :param data: The data to add into the segment
+        Due to issues with modifying the program header, this function clobbers the NOTE segment/sections which reside
+        after the program header or interp section. If that segment isn't a NOTE segment, issues will occur when
+        running the binary.
+
+        :param size: The minimum size to make the segment given required alignments
         :return: A new segment from within the ELF file
         """
 
-        # Store old program header values
-        old_start = self.e_phoff
-        old_end = self.e_phoff + self.e_phnum * self.e_phentsize
-        old_size = old_end - old_start
-        old_data = self.data[old_start:old_end]
+        self._shift_interp()
 
-        # Get any gaps large enough to move the Program Header into
-        size_needed = old_size + self.e_phentsize
-        gap_segments = self._get_gap_segment(size_needed)
-
-        # Copy existing header and data
-        start = gap_segments[0].p_offset + gap_segments[0].p_filesz
-        self.data[start:start + old_size] = old_data
-
-        # Modify the header values
-        self.e_phoff = start
-
-        # Statically linked files don't have a PT_PHDR segment - the program header is in the first PT_LOAD segment
-        if self.linking_method == ELFLinkingMethod.DYNAMIC:
-            self.phdr.p_offset = start
-            self.phdr.p_vaddr = self.virtual_base + start
-
-            # Get the PT_LOAD segment which loads the program header into memory
-            ph_load_segment = [x for x in self.segments
-                               if x.p_offset <= old_start <= x.p_offset + x.p_filesz
-                               and x.p_type == ProgramType.PT_LOAD][0]
-            ph_load_segment.p_filesz += self.phdr.p_filesz
-            ph_load_segment.p_memsz += self.phdr.p_memsz
-
-            # Increase size of the PT_PHDR segment
-            self.phdr.p_filesz += self.e_phentsize
-            self.phdr.p_memsz += self.e_phentsize
-        else:
-            ph_load_segment = self.phdr
-
-        # Null out the old header
-        # This isn't strictly necessary but good to clean up
-        self.data[old_start:old_end] = b'\x00' * (old_end - old_start)
-
-        # Create new segment
-        new_segment = self._create_new_segment(data)
+        # Create a new segment
+        new_segment = self._create_new_segment(size + self.phdr.p_filesz)
         packed = pack(new_segment.hdr_struct, *new_segment.header)
         self.segments.append(new_segment)
 
-        # Add header to end of header section
+        # Add header entry to end of header section
         offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
         self._full_data[offset:offset + self.e_phentsize] = packed
         self.e_phnum += 1
 
-        ph_load_segment.p_filesz += self.phdr.p_filesz
-        ph_load_segment.p_memsz += self.phdr.p_memsz
-
         return new_segment
+
+    def _shift_interp(self):
+        """
+        Shifts the INTERP section/segment/symbol in order to make room for a new header section. This overwrites
+        any data after this section, which is hopefully unused.
+        """
+        interp = [s for s in self.segments if s.p_type == ProgramType.PT_INTERP]
+        if len(interp) == 0:
+            return
+
+        # Get the interp
+        interp_seg = [s for s in self.segments if s.p_type == ProgramType.PT_INTERP][0]
+        interp_sym = [s for s in self.symbols if s.st_value == interp_seg.p_vaddr][0]
+
+        interp_seg.p_offset += self.e_phentsize
+        interp_seg.p_vaddr += self.e_phentsize
+        interp_seg.p_paddr += self.e_phentsize
+
+        interp_sec = self.get_section('.interp')
+        interp_sec.sh_offset += self.e_phentsize
+        interp_sec.sh_addr += self.e_phentsize
+
+        interp_sym.st_value += self.e_phentsize
+
+        # Move the interp data over the notes section
+        start = interp_seg.p_offset
+        end = interp_seg.p_offset + interp_seg.p_filesz
+        assert (end - start == len(interp_seg.data))
+        self.data[start:end] = interp_seg.data
 
     def _create_new_segment(self, size):
         """
@@ -445,54 +369,6 @@ class ELF:
         )
         return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
 
-    def _get_gap_segment(self, size_needed):
-        """
-        Extracts a segment which has an unused gap between it and the next segment large enough to fit in the
-        new data that will be placed there.
-
-        :param size_needed: The size of the data that needs to fit in the gap
-        :return: A tuple containing the segment, plus it's closest next segment in the form (segment, closest_segment)
-        """
-
-        # Sort the segments by their location in the file.
-        sorted_segments = [x for x in self.segments if x.p_filesz > 0]
-        sorted_segments.sort(key=lambda x: x.p_offset)
-        gap_segment = None
-
-        # Loop through each segment and determine the size of the gap between them
-        for segment in sorted_segments:
-
-            # Find the closest segment
-            index = sorted_segments.index(segment)
-            closest_segment = next(iter(sorted(
-                [x for x in sorted_segments[index:]
-                 if x.p_offset >= segment.p_offset + segment.p_filesz],
-                key=lambda x: x.p_offset)), None)
-
-            segment_end_addr = segment.p_offset + segment.p_filesz
-
-            # 1. Make sure there is a segment after the current one
-            # 2. Check if the gap between is big enough
-            # 3. Make sure no other segments are in the way
-            if closest_segment is None or \
-                    closest_segment.p_offset - segment_end_addr < size_needed or \
-                    segment.is_segment_gap_overlapped(closest_segment, self.segments):
-                continue
-
-            # First time then save
-            if gap_segment is None:
-                gap_segment = (segment, closest_segment)
-                continue
-
-            # Get the one with the lowest address
-            if closest_segment.p_offset < gap_segment[1].p_offset:
-                gap_segment = (segment, closest_segment)
-
-        # Ensure we've found a large enough gap
-        assert (gap_segment is not None)
-
-        return gap_segment
-
     @staticmethod
     def _parse_header(data, header_size, hdr_struct):
         """
@@ -536,7 +412,7 @@ class ELF:
         else:
             # Create a new "ghost" segment containing the correct data, without adding it to the segment list
             header = (
-                6,                                # p_type
+                ProgramType.PT_PHDR,              # p_type
                 4,                                # p_flags
                 self.e_phoff,                     # p_offset
                 self.e_phoff,                     # p_vaddr

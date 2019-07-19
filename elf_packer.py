@@ -51,7 +51,7 @@ class ELFPacker:
                 to_remove.append(f)
             elif f in to_remove:
                 print(f"\t[-] {f} : Function is overlapping with another")
-            elif f.name in ["_start", "_fini", "__libc_csu_init", "__libc_csu_fini"]:
+            elif f.name == "_start" or 'libc' in f.name or '_dl_' in f.name:
                 print(f"\t[-] {f} : Ignoring")
                 to_remove.append(f)
             else:
@@ -66,14 +66,15 @@ class ELFPacker:
             function_list.remove(f)
 
         # Construct the table used for reference in the decryption/encryption routines
+        print('[*] Encrypting functions')
         table = self._get_reference_table(function_list)
         table_size = table.count(',') + 1  # Counts the number of comma's (bytes) within the table
         for function in function_list:
             self._encrypt_function(function, encryption_key)
 
         # Create a segment to load the routines in
-        null_data = b'\x00' * (table_size + 400)
-        segment = self.binary.append_loadable_segment_2(table_size + 400)
+        print("[*] Creating new segment to load encryption/decryption routines in")
+        segment = self.binary.append_loadable_segment_3(table_size + 400)
 
         # Set up and assemble the encryption/decryption routines
         loader = self._assemble_loader(table, segment, encryption_key)
@@ -99,11 +100,13 @@ class ELFPacker:
         self.binary.e_entry = new_entry
 
         # Save the packed elf and set the executable bit
+        print(f"[*] Saving file as {self.filename}.packed and making it executable")
         with open(f"{self.filename}.packed", "wb") as f:
             f.write(self.binary.data)
 
         st = os.stat(f"{self.filename}.packed")
         os.chmod(f"{self.filename}.packed", st.st_mode | stat.S_IEXEC)
+        print("[+] Done")
 
     def _get_reference_table(self, function_list):
         """
