@@ -169,7 +169,9 @@ class ELFPacker:
         :param key: Encryption key used to encrypt/decrypt the data
         :return: A bytearray containing the bytecode of the assembled loader
         """
-        loader_file = 'asm/loader.asm'
+        filename = 'asm/loader.asm'
+        dirname = os.path.dirname(__file__)
+        loader_file = os.path.join(dirname, filename)
         text_segment = [s for s in self.binary.segments
                         if '.text' in [sec.section_name for sec in s.sections]][0]
         with open(loader_file) as f:
