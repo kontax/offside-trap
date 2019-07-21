@@ -44,7 +44,7 @@ class ELFPacker:
         function_list.sort(key=lambda fn: fn.name)
         overlapping = self._get_overlapping_functions(function_list)
         to_remove = []
-        print(f"[*] Encrypting the following functions in {self.binary} with {encryption_key}")
+        print(f"[*] Encrypting the following functions in {self.filename} with {encryption_key}")
         for f in function_list:
             if f.size < BYTES_TO_SAVE:
                 print(f"\t[-] {f} : Function is too small")
