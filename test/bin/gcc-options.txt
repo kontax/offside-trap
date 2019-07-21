@@ -1,3 +1,0 @@
-gcc -o test test.c                  # Dynamic + PIE
-gcc -no-pie -o test test.c          # Dynamic + No-PIE
-gcc -no-pie -static -o test test.c  # Static + No-PIE

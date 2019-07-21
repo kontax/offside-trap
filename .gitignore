@@ -193,4 +193,4 @@ dmypy.json
 .pyre/
 
 # Sensitive files
-src/conf/*
+src/conf/keys.py
