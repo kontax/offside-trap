@@ -123,6 +123,30 @@ class SpeedTestResult(TestResult):
     def _get_info(self):
         return None
 
+class SizeTestResult(TestResult):
+
+    def __init__(self, filename, original, packed):
+        super().__init__(filename, original, packed)
+
+    def _get_original_rate(self):
+        """ Gets the aggregated results of the original file """
+        return self.original
+
+    def _get_packed_rate(self):
+        """ Gets the aggregated results of the packed file """
+        return self.packed
+
+    def _get_benefit(self):
+        """
+        Calculate the cost in size of running the packer over the binary.
+
+        :return: A float representing how much larger the packed binary is compared to the original
+        """
+        return self.packed_rate / self.original_rate
+
+    def _get_info(self):
+        return None
+
 
 class DetectionTestResult(TestResult):
     def __init__(self, filename, original, packed):
@@ -179,13 +203,14 @@ class DetectionTestResult(TestResult):
 
 
 class TestRunner:
-    def __init__(self, test_folder):
+    def __init__(self, test_folder, test_binary_list):
         """
         Instantiates a new TestRunner object, with a folder containing binaries to run tests on. This folder must
         contain two additional folders: bin and virus, which contain the regular binaries to test functionality and
         speed against, as well a viruses to compare against VirusTotal detection rates with.
 
         :param test_folder: The folder containing the binary files to test.
+        :param test_binary_list: A dict containing binaries and arguments to test against
         """
 
         dirs = next(os.walk(test_folder))[1]
@@ -194,6 +219,7 @@ class TestRunner:
             raise AssertionError("The test folder must contain 'virus' and 'bin' subfolders containing test binaries")
 
         self.test_folder = os.path.abspath(test_folder)
+        self.test_binary_list = test_binary_list
 
     def run_all_tests(self):
         """
@@ -203,15 +229,19 @@ class TestRunner:
         detection = self.test_detection()
 
         # Check correctness for packed vs non-packed binaries
-        correctness = self.test_correctness(TEST_BINARY_LIST)
+        correctness = self.test_correctness(self.test_binary_list)
 
         # Check speed for packed vs non-packed binaries
-        speed = self.test_speed(TEST_BINARY_LIST)
+        speed = self.test_speed(self.test_binary_list)
+
+        # Check size for packed vs non-packed binaries
+        size = self.test_size(self.test_binary_list)
 
         return {
             "detection": detection,
             "correctness": correctness,
-            "speed": speed
+            "speed": speed,
+            "size": size
         }
 
     def test_detection(self):
@@ -313,6 +343,28 @@ class TestRunner:
             output[original_key] = SpeedTestResult(original_key, original, packed, None)
 
         return output
+
+    def test_size(self, test_binary_list):
+        """
+        Tests the impact encrypting the binary has on it's file size.
+
+        :param test_binary_list: A dict containing a list of binaries to run, as well as various flags to run them with
+        :return: A dict containing the results of the tests.
+        """
+        bin_dir = os.path.join(self.test_folder, 'bin')
+
+        print("[*] Testing binary size")
+        self._initialize_test_binaries(test_binary_list, bin_dir)
+
+        print("[*] Getting size of binaries")
+        results = {}
+        for key in test_binary_list.keys():
+            bin_key = key.split(' ')[0].split('/')[1]
+            bin_path = os.path.join(bin_dir, bin_key)
+            packed_path = f"{bin_path}.packed"
+            results[bin_key] = SizeTestResult(bin_key, os.path.getsize(bin_path), os.path.getsize(packed_path))
+
+        return results
 
     def _initialize_test_binaries(self, test_binary_list, bin_dir):
         """
@@ -525,8 +577,9 @@ class TestRunner:
 
 def test_script():
     os.chdir('..')
-    runner = TestRunner('test')
-    runner.run_all_tests()
+    runner = TestRunner('test', TEST_BINARY_LIST)
+    #runner.run_all_tests()
+    runner.test_size(TEST_BINARY_LIST)
 
 
 if __name__ == "__main__":
