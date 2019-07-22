@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from random import Random
 from shutil import copyfile
 from subprocess import Popen, check_output, PIPE
+from time import perf_counter
 
 import virus_total
 from conf.test_binaries import TEST_BINARY_LIST
@@ -65,9 +66,11 @@ class CorrectnessTestResult(TestResult):
         super().__init__(filename, original, packed)
 
     def _get_original_rate(self):
-        return 1.0
+        """ Gets the aggregated results of the original file """
+        return 1.0  # We assume the original runs correctly every time
 
     def _get_packed_rate(self):
+        """ Gets the aggregated results of the packed file """
         correct = 0
         for key in self.packed.keys():
             if self.packed[key] == self.original[key]:
@@ -76,51 +79,60 @@ class CorrectnessTestResult(TestResult):
         return correct / (len(self.packed.keys()) * 1.0)
 
     def _get_benefit(self):
+        """
+        Calculate the cost in functionality of running the packer over the binary.
+
+        :return: A float representing how much less functional the packed binary runs
+        """
         return self.packed_rate
 
     def _get_info(self):
         return None
 
 
-class DetectionTest:
+class SpeedTestResult(TestResult):
+
+    def __init__(self, filename, original, packed, functions_encrypted):
+        super().__init__(filename, original, packed)
+        self.functions_encrypted = functions_encrypted
+
+    def _get_original_rate(self):
+        """ Gets the aggregated results of the original file """
+        total_time = 0
+        for opt in self.original.keys():
+            total_time += self.original[opt]
+
+        return total_time
+
+    def _get_packed_rate(self):
+        """ Gets the aggregated results of the packed file """
+        total_time = 0
+        for opt in self.packed.keys():
+            total_time += self.packed[opt]
+
+        return total_time
+
+    def _get_benefit(self):
+        """
+        Calculate the cost in speed of running the packer over the binary.
+
+        :return: A float representing how much slower the packed binary runs
+        """
+        return self.packed_rate / self.original_rate
+
+    def _get_info(self):
+        return None
+
+
+class DetectionTestResult(TestResult):
     def __init__(self, filename, original, packed):
-        """
-        Calculates and aggregates the results of a scan from VirusTotal of both an original and packed file.
+        super().__init__(filename, original, packed)
 
-        :param filename: The filename of the file being scanned
-        :param original: The results from the scan of the original file
-        :param packed: The results from the scan of the packed file
-        """
-        self.filename = filename
-        self.original = original
-        self.packed = packed
-
-        # Store the detection rates and calculate the benefit of packing
-        self.original_detection_rate = self.get_original_rate()
-        self.packed_detection_rate = self.get_packed_rate()
-        self.benefit = self._get_benefit()
-
-        # Get the most popular name of the virus if any exist
-        self.name = self._get_most_popular_name()
-
-    def get_aggregated_results(self):
-        """
-        Gets a dict representation of the results of the scans.
-
-        :return: A dict representing the detection rates
-        """
-        return {
-            'name': self.name,
-            'original': self.original_detection_rate,
-            'packed': self.packed_detection_rate,
-            'benefit': self.benefit
-        }
-
-    def get_original_rate(self):
+    def _get_original_rate(self):
         """ Gets the aggregated results of the scan of the original file """
         return self._get_detection_rate('original')
 
-    def get_packed_rate(self):
+    def _get_packed_rate(self):
         """ Gets the aggregated results of the scan of the packed file """
         return self._get_detection_rate('packed')
 
@@ -137,7 +149,17 @@ class DetectionTest:
 
         return detected / total
 
-    def _get_most_popular_name(self):
+    def _get_benefit(self):
+        """
+        Calculate the benefit of running the packer over the binary.
+
+        :return: A float representing the improvement of undetected rates of the binary.
+        """
+        orig = self._get_original_rate()
+        packed = self._get_packed_rate()
+        return (orig - packed) / orig if orig > 0 else 0
+
+    def _get_info(self):
         """
         Returns the most popular name given to the binary if it is detected by one or more scanners.
 
@@ -154,16 +176,6 @@ class DetectionTest:
                 names[name] = 1
 
         return next(iter([x for x in names if names[x] == max(names.values())]), None)
-
-    def _get_benefit(self):
-        """
-        Calculate the benefit of running the packer over the binary.
-
-        :return: A float representing the improvement of undetected rates of the binary.
-        """
-        orig = self.get_original_rate()
-        packed = self.get_packed_rate()
-        return (orig - packed) / orig if orig > 0 else 0
 
 
 class TestRunner:
@@ -195,6 +207,12 @@ class TestRunner:
 
         # Check speed for packed vs non-packed binaries
         speed = self.test_speed(TEST_BINARY_LIST)
+
+        return {
+            "detection": detection,
+            "correctness": correctness,
+            "speed": speed
+        }
 
     def test_detection(self):
         """
@@ -229,37 +247,25 @@ class TestRunner:
         :param test_binary_list: A dict containing a list of binaries to run, as well as various flags to run them with
         :return: A dict containing the results of the tests.
         """
-        print("[*] Testing execution correctness")
         bin_dir = os.path.join(self.test_folder, 'bin')
 
-        # Clean up any already packed files
-        print("[*] Cleaning up previously packed files")
-        self._clean_packed_files(bin_dir)
-
-        # Evaluate the functions that are called in general use
-        print("[*] Retrieving functions used in general execution to limit encryption effect")
-        used_functions = self._run_test_binaries(
-            bin_dir, test_binary_list, TestRunner.run_profiler,
-            save_opts=False, save_results=True, save_path="all_functions.json")
-
-        # Repack the rest of the files and test each one
-        print('[*] Encrypting all binaries')
-        for file in used_functions.keys():
-            file = os.path.join(bin_dir, file)
-            TestRunner._encrypt_binary(file, used_functions)
+        print("[*] Testing execution correctness")
+        self._initialize_test_binaries(test_binary_list, bin_dir)
 
         print("[*] Checking the output of the original non-encrypted binaries")
         original_results = self._run_test_binaries(
-            bin_dir, test_binary_list, lambda x, y: y,
-            save_opts=True, save_results=False)
+            bin_dir, test_binary_list, lambda x, y, z: y,
+            save_opts=True, save_results=False
+        )
 
         print("[*] Checking the output of the encrypted binaries")
         # Update the keys to point to packed binaries
         packed_binary_list = self._create_packed_list(test_binary_list)
 
         packed_results = self._run_test_binaries(
-            bin_dir, packed_binary_list, lambda x, y: y,
-            save_opts=True, save_results=False)
+            bin_dir, packed_binary_list, lambda x, y, z: y,
+            save_opts=True, save_results=False
+        )
 
         # Create the TestResult objects
         output = {}
@@ -272,8 +278,50 @@ class TestRunner:
         return output
 
     def test_speed(self, test_binary_list):
-        print("[*] Testing execution correctness")
+        """
+        Tests the impact packing the binary has on the speed of execution of the binary.
+
+        :param test_binary_list: A dict containing a list of binaries to run, as well as various flags to run them with
+        :return: A dict containing the results of the tests.
+        """
         bin_dir = os.path.join(self.test_folder, 'bin')
+
+        print("[*] Testing execution speed")
+        self._initialize_test_binaries(test_binary_list, bin_dir)
+
+        print("[*] Timing the execution of the unmodified binaries")
+        original_results = self._run_test_binaries(
+            bin_dir, test_binary_list, lambda x, y, z: z,
+            save_opts=True, save_results=False
+        )
+
+        print("[*] Timing the execution of the encrypted binaries")
+        # Update the keys to point to packed binaries
+        packed_binary_list = self._create_packed_list(test_binary_list)
+
+        packed_results = self._run_test_binaries(
+            bin_dir, packed_binary_list, lambda x, y, z: z,
+            save_opts=True, save_results=False
+        )
+
+        # Create the TestResult objects
+        output = {}
+        for original_key in original_results.keys():
+            packed_key = f"{original_key}.packed"
+            original = original_results[original_key]
+            packed = packed_results[packed_key]
+            output[original_key] = SpeedTestResult(original_key, original, packed, None)
+
+        return output
+
+    def _initialize_test_binaries(self, test_binary_list, bin_dir):
+        """
+        Cleans up previously encrypted binaries, retrieves the list of functions that are to be encrypted based on
+        the profiler, then encrypt the collection of test binaries.
+
+        :param test_binary_list: The list of binaries being tested
+        :param bin_dir: The path of the folder containing the list of binaries being tested
+        """
 
         # Clean up any already packed files
         print("[*] Cleaning up previously packed files")
@@ -281,11 +329,15 @@ class TestRunner:
 
         # Evaluate the functions that are called in general use
         print("[*] Retrieving functions used in general execution to limit encryption effect")
-        used_functions = self._run_test_binaries(bin_dir, test_binary_list)
+        used_functions = self._run_test_binaries(
+            bin_dir, test_binary_list, TestRunner._run_profiler,
+            save_opts=False, save_results=True, save_path="all_functions.json")
 
         # Repack the rest of the files and test each one
-        print('[*] Packing and testing correctness')
-        return self._get_speed_results(bin_dir, test_binary_list, used_functions)
+        print('[*] Encrypting all binaries')
+        for file in used_functions.keys():
+            file = os.path.join(bin_dir, file)
+            TestRunner._encrypt_binary(file, used_functions)
 
     @staticmethod
     def _get_detection_results(virus_dir):
@@ -313,7 +365,7 @@ class TestRunner:
                 # Test each file and record the result
                 original = virus_total.scan_file(full_path)['scans']
                 packed = virus_total.scan_file(f"{full_path}.packed")['scans']
-                scan_results.append(DetectionTest(file, original, packed))
+                scan_results.append(DetectionTestResult(file, original, packed))
 
         return scan_results
 
@@ -360,14 +412,17 @@ class TestRunner:
 
                 # Run the program and it's arguments
                 run_string = execution_string.format(opt, test_bin)
-                print(f"\t[+] {run_string}")
+                print(f"\t+ {run_string}")
+
+                start = perf_counter()
                 try:
                     execution_output = check_output(run_string.split(' '))
                 except Exception as ex:
-                    print(f"\t[+] {run_string} failed: {str(ex)}")
+                    print(f"\t- {run_string} failed: {str(ex)}")
                     execution_output = None
+                end = perf_counter()
 
-                execution_output = post_exec_func(bin_path, execution_output)
+                execution_output = post_exec_func(bin_path, execution_output, end - start)
 
                 # Store the functions as a set to remove duplicates
                 if bin_key not in return_output:
@@ -390,7 +445,7 @@ class TestRunner:
         return return_output
 
     @staticmethod
-    def run_profiler(bin_path, output):
+    def _run_profiler(bin_path, output, time_taken):
         """
         This function takes the output from running a binary and extracts the functions that were called during
         execution.
@@ -400,6 +455,7 @@ class TestRunner:
 
         :param bin_path: The location of the binaries
         :param output: The output from the binary execution
+        :param time_taken: The amount of time taken for the function to run
         :return: A list of functions that were run during program execution
         """
         if output is None:
@@ -435,7 +491,7 @@ class TestRunner:
             if af.name in used_functions[os.path.basename(file_path)] \
                     and 'bfd' not in af.name:  # TODO: Remove this
                 chosen_funcs.append(af)
-        print(f"\t[+] Encrypting {len(chosen_funcs)} out of {len(all_functions)}")
+        print(f"\t+ Encrypting {len(chosen_funcs)} out of {len(all_functions)} functions")
         packer.encrypt(key, chosen_funcs)
 
     @staticmethod
@@ -470,7 +526,7 @@ class TestRunner:
 def test_script():
     os.chdir('..')
     runner = TestRunner('test')
-    runner.test_correctness(TEST_BINARY_LIST)
+    runner.run_all_tests()
 
 
 if __name__ == "__main__":

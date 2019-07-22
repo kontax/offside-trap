@@ -47,15 +47,15 @@ class ELFPacker:
         print(f"[*] Encrypting the following functions in {self.filename} with {encryption_key}")
         for f in function_list:
             if f.size < BYTES_TO_SAVE:
-                print(f"\t[-] {f} : Function is too small")
+                print(f"\t- {f} : Function is too small")
                 to_remove.append(f)
             elif f in to_remove:
-                print(f"\t[-] {f} : Function is overlapping with another")
+                print(f"\t- {f} : Function is overlapping with another")
             elif f.name == "_start" or 'libc' in f.name or '_dl_' in f.name:
-                print(f"\t[-] {f} : Ignoring")
+                print(f"\t- {f} : Ignoring")
                 to_remove.append(f)
             else:
-                print(f"\t[+] {f}")
+                print(f"\t+ {f}")
 
         print()
 
@@ -106,7 +106,7 @@ class ELFPacker:
 
         st = os.stat(f"{self.filename}.packed")
         os.chmod(f"{self.filename}.packed", st.st_mode | stat.S_IEXEC)
-        print("[+] Done")
+        print()
 
     def _get_reference_table(self, function_list):
         """
