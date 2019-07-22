@@ -1,0 +1,10 @@
+addr2line: 39/2065
+cxxfilt: 18/2062
+elfedit: 16/63
+nm-new: 74/2098
+objcopy: 142/2327
+objdump: 197/2595
+readelf: 96/541
+size: 40/2073
+strings: 36/2066
+strip-new: 132/2327

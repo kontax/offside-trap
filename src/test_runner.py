@@ -20,6 +20,8 @@ class TestResult(ABC):
         self.packed = packed
 
         # Store the detection rates and calculate the benefit of packing
+        self.original_value = self._get_original_value()
+        self.packed_value = self._get_packed_value()
         self.original_rate = self._get_original_rate()
         self.packed_rate = self._get_packed_rate()
         self.benefit = self._get_benefit()
@@ -37,11 +39,22 @@ class TestResult(ABC):
         :return: A dict representing the detection rates
         """
         return {
+            'filename': self.filename,
             'info': self.info,
-            'original': self.original_rate,
-            'packed': self.packed_rate,
+            'original_value': self.original_value,
+            'packed_value': self.packed_value,
+            'original_rate': self.original_rate,
+            'packed_rate': self.packed_rate,
             'benefit': self.benefit
         }
+
+    @abstractmethod
+    def _get_original_value(self):
+        pass
+
+    @abstractmethod
+    def _get_packed_value(self):
+        pass
 
     @abstractmethod
     def _get_original_rate(self):
@@ -65,18 +78,23 @@ class CorrectnessTestResult(TestResult):
     def __init__(self, filename, original, packed):
         super().__init__(filename, original, packed)
 
+    def _get_original_value(self):
+        return len(self.original.keys())
+
+    def _get_packed_value(self):
+        correct = 0
+        for key in self.packed.keys():
+            if self.packed[key] == self.original[key]:
+                correct += 1
+        return correct
+
     def _get_original_rate(self):
         """ Gets the aggregated results of the original file """
         return 1.0  # We assume the original runs correctly every time
 
     def _get_packed_rate(self):
         """ Gets the aggregated results of the packed file """
-        correct = 0
-        for key in self.packed.keys():
-            if self.packed[key] == self.original[key]:
-                correct += 1
-
-        return correct / (len(self.packed.keys()) * 1.0)
+        return self.packed_value / (len(self.packed.keys()) * 1.0)
 
     def _get_benefit(self):
         """
@@ -93,24 +111,39 @@ class CorrectnessTestResult(TestResult):
 class SpeedTestResult(TestResult):
 
     def __init__(self, filename, original, packed, functions_encrypted):
+        self.run_count = 1
         super().__init__(filename, original, packed)
         self.functions_encrypted = functions_encrypted
 
-    def _get_original_rate(self):
-        """ Gets the aggregated results of the original file """
+    def update(self, test_result):
+        self.run_count += 1
+        self.original_value += test_result.original_value
+        self.packed_value += test_result.packed_value
+        self.original_rate = self._get_original_rate()
+        self.packed_rate = self._get_packed_rate()
+        self.benefit = self._get_benefit()
+
+    def _get_original_value(self):
         total_time = 0
         for opt in self.original.keys():
             total_time += self.original[opt]
 
         return total_time
 
-    def _get_packed_rate(self):
-        """ Gets the aggregated results of the packed file """
+    def _get_packed_value(self):
         total_time = 0
         for opt in self.packed.keys():
             total_time += self.packed[opt]
 
         return total_time
+
+    def _get_original_rate(self):
+        """ Gets the aggregated results of the original file """
+        return self.original_value / self.run_count
+
+    def _get_packed_rate(self):
+        """ Gets the aggregated results of the packed file """
+        return self.packed_value / self.run_count
 
     def _get_benefit(self):
         """
@@ -118,15 +151,22 @@ class SpeedTestResult(TestResult):
 
         :return: A float representing how much slower the packed binary runs
         """
-        return self.packed_rate / self.original_rate
+        return self.packed_value / self.original_value
 
     def _get_info(self):
         return None
+
 
 class SizeTestResult(TestResult):
 
     def __init__(self, filename, original, packed):
         super().__init__(filename, original, packed)
+
+    def _get_original_value(self):
+        return self.original
+
+    def _get_packed_value(self):
+        return self.packed
 
     def _get_original_rate(self):
         """ Gets the aggregated results of the original file """
@@ -151,6 +191,12 @@ class SizeTestResult(TestResult):
 class DetectionTestResult(TestResult):
     def __init__(self, filename, original, packed):
         super().__init__(filename, original, packed)
+
+    def _get_original_value(self):
+        return len([self.original[x] for x in self.original.keys() if self.original[x]['detected'] is True])
+
+    def _get_packed_value(self):
+        return len([self.packed[x] for x in self.packed.keys() if self.packed[x]['detected'] is True])
 
     def _get_original_rate(self):
         """ Gets the aggregated results of the scan of the original file """
@@ -232,16 +278,25 @@ class TestRunner:
         correctness = self.test_correctness(self.test_binary_list)
 
         # Check speed for packed vs non-packed binaries
-        speed = self.test_speed(self.test_binary_list)
+        all_speed = {}
+        for i in range(20):
+            speed = self.test_speed(self.test_binary_list)
+            for s in speed:
+                if s in all_speed.keys():
+                    all_speed[s].update(speed[s])
+                else:
+                    all_speed[s] = speed[s]
 
         # Check size for packed vs non-packed binaries
         size = self.test_size(self.test_binary_list)
 
+        print("[*] Testing complete\n")
+
         return {
-            "detection": detection,
-            "correctness": correctness,
-            "speed": speed,
-            "size": size
+            "detection": [detection[x].get_aggregated_results() for x in detection],
+            "correctness": [correctness[x].get_aggregated_results() for x in correctness],
+            "speed": [all_speed[x].get_aggregated_results() for x in all_speed],
+            "size": [size[x].get_aggregated_results() for x in size]
         }
 
     def test_detection(self):
@@ -261,14 +316,14 @@ class TestRunner:
         # Repack the rest of the files and scan each one
         print("[*] Encrypting and scanning")
         scan_results = self._get_detection_results(virus_dir)
-        print("[*] Scanning complete")
+        print("[*] Scanning complete\n")
 
         # Analyse the results
-        aggregated = {}
+        results = {}
         for scan in scan_results:
-            aggregated[scan.filename] = scan.get_aggregated_results()
+            results[scan.filename] = scan
 
-        return aggregated
+        return results
 
     def test_correctness(self, test_binary_list):
         """
@@ -492,7 +547,7 @@ class TestRunner:
         # Save the file to prevent running again
         if save_results is True:
             with open(all_functions_path, "w") as f:
-                f.write(json.dumps(return_output))
+                f.write(json.dumps(return_output, indent=4))
 
         return return_output
 
@@ -574,12 +629,14 @@ class TestRunner:
             packed_binary_list[packed_key] = packed_binary_list.pop(key)
         return packed_binary_list
 
+    def _update_speed(self, speed, all_speed):
+        pass
+
 
 def test_script():
-    os.chdir('..')
     runner = TestRunner('test', TEST_BINARY_LIST)
     results = runner.run_all_tests()
-    results_json = json.loads(results, intent=4)
+    results_json = json.dumps(results, indent=4)
     with open('results.json', 'w') as f:
         f.write(results_json)
 
