@@ -238,11 +238,38 @@ class TestRunner:
 
         # Evaluate the functions that are called in general use
         print("[*] Retrieving functions used in general execution to limit encryption effect")
-        used_functions = self._get_used_functions(bin_dir, test_binary_list)
+        used_functions = self._run_test_binaries(
+            bin_dir, test_binary_list, TestRunner.run_profiler,
+            save_opts=False, save_results=True, save_path="all_functions.json")
 
         # Repack the rest of the files and test each one
-        print('[*] Packing and testing correctness')
-        return self._get_correctness_results(bin_dir, test_binary_list, used_functions)
+        print('[*] Encrypting all binaries')
+        for file in used_functions.keys():
+            file = os.path.join(bin_dir, file)
+            TestRunner._encrypt_binary(file, used_functions)
+
+        print("[*] Checking the output of the original non-encrypted binaries")
+        original_results = self._run_test_binaries(
+            bin_dir, test_binary_list, lambda x, y: y,
+            save_opts=True, save_results=False)
+
+        print("[*] Checking the output of the encrypted binaries")
+        # Update the keys to point to packed binaries
+        packed_binary_list = self._create_packed_list(test_binary_list)
+
+        packed_results = self._run_test_binaries(
+            bin_dir, packed_binary_list, lambda x, y: y,
+            save_opts=True, save_results=False)
+
+        # Create the TestResult objects
+        output = {}
+        for original_key in original_results.keys():
+            packed_key = f"{original_key}.packed"
+            original = original_results[original_key]
+            packed = packed_results[packed_key]
+            output[original_key] = CorrectnessTestResult(original_key, original, packed)
+
+        return output
 
     def test_speed(self, test_binary_list):
         print("[*] Testing execution correctness")
@@ -254,7 +281,7 @@ class TestRunner:
 
         # Evaluate the functions that are called in general use
         print("[*] Retrieving functions used in general execution to limit encryption effect")
-        used_functions = self._get_used_functions(bin_dir, test_binary_list)
+        used_functions = self._run_test_binaries(bin_dir, test_binary_list)
 
         # Repack the rest of the files and test each one
         print('[*] Packing and testing correctness')
@@ -291,32 +318,24 @@ class TestRunner:
         return scan_results
 
     @staticmethod
-    def _clean_packed_files(folder):
-        for root, _, files in os.walk(folder):
-            for file in files:
-                file = os.path.join(root, file)
-                if file.endswith('packed'):
-                    os.remove(file)
-
-    @staticmethod
-    def _get_used_functions(bin_dir, test_binary_list):
+    def _run_test_binaries(bin_dir, test_binary_list, post_exec_func, save_opts, save_results=False, save_path=''):
         """
         This function loops through a list of binaries and specific arguments/options for each of those binaries, runs
-        them and parses the output of a profiler to see which functions have been touched during execution.
-
-        Each binary must be compiled with the -fp flag so as the profiler gprof can work. A test file is provided during
-        each execution as a fresh binary so each output is consistent.
+        them, then executes the post_exec_func function to transform any results.
 
         :param bin_dir: The folder containing the binaries
         :param test_binary_list: A dict containing binaries and list of arguments to pass each one
+        :param post_exec_func: The function to run after initial binary execution, signature fn(bin_path, output)
+        :param save_opts: Whether the output should include all binary parameters as keys or not
+        :param save_results: True if the results of the output should be serialized to a file or not
+        :param save_path: The path to serialize the results to if save_results is set to True
         :return: A dict of binaries and the functions they've run during execution
         """
-        all_functions = {}
-        all_functions_filename = "all_functions.json"
-        all_functions_path = os.path.join(bin_dir, all_functions_filename)
+        return_output = {}
 
-        # If we've already run this no need to do it again
-        if os.path.exists(all_functions_path):
+        # Check if the results are saved in a file
+        all_functions_path = os.path.join(bin_dir, save_path)
+        if save_results is True and os.path.exists(all_functions_path):
             with open(all_functions_path, 'r') as f:
                 return json.loads(f.read())
 
@@ -326,97 +345,86 @@ class TestRunner:
         test_file = os.path.join(dirname, test_file)
 
         # Loop through each binary and execute it with the various options supplied
-        for prog in test_binary_list.keys():
-            opts = test_binary_list[prog]
-            bin_name = prog.split(' ')[0]
+        for execution_string in test_binary_list.keys():
+            opts = test_binary_list[execution_string]
+            bin_name = execution_string.split(' ')[0]
             bin_key = bin_name.split('/')[1]
             bin_path = os.path.join(bin_dir, bin_key)
-            prog = os.path.join(bin_dir, prog)
+            execution_string = os.path.join(bin_dir, execution_string)
 
             for opt in opts:
 
                 # Copy the test binary new each time
                 test_bin = os.path.join(bin_dir, 'test')
                 copyfile(test_file, test_bin)
-                run_string = prog.format(opt, test_bin).split(' ')
-                print(f"\t[+] {run_string}")
-                check_output(run_string)
 
-                # Run the profiler to check which functions have been touched in execution
-                ps = Popen(['gprof', '-b', '-p', bin_path], stdout=PIPE)
-                awk = Popen(['awk', "{print $7}"], stdin=ps.stdout, stdout=PIPE)
-                sed = Popen(["sed", "-r", "/^\s*$/d"], stdin=awk.stdout, stdout=PIPE)
-                output = check_output(['grep', '-v', 'name'], stdin=sed.stdout)
-                output = output.decode('utf-8')
+                # Run the program and it's arguments
+                run_string = execution_string.format(opt, test_bin)
+                print(f"\t[+] {run_string}")
+                try:
+                    execution_output = check_output(run_string.split(' '))
+                except Exception as ex:
+                    print(f"\t[+] {run_string} failed: {str(ex)}")
+                    execution_output = None
+
+                execution_output = post_exec_func(bin_path, execution_output)
 
                 # Store the functions as a set to remove duplicates
-                if bin_key not in all_functions:
-                    all_functions[bin_key] = set()
+                if bin_key not in return_output:
+                    return_output[bin_key] = {} if save_opts else set()
 
-                all_functions[bin_key].update(output.split('\n'))
+                if save_opts:
+                    return_output[bin_key][opt] = execution_output
+                else:
+                    return_output[bin_key].update(execution_output)
 
-            # Output the final function list as a sorted list
-            all_functions[bin_key] = sorted(list(all_functions[bin_key]))
+            # Deduplicate results
+            if not save_opts:
+                return_output[bin_key] = sorted(list(return_output[bin_key]))
+
+        # Save the file to prevent running again
+        if save_results is True:
+            with open(all_functions_path, "w") as f:
+                f.write(json.dumps(return_output))
+
+        return return_output
+
+    @staticmethod
+    def run_profiler(bin_path, output):
+        """
+        This function takes the output from running a binary and extracts the functions that were called during
+        execution.
+
+        Each binary must be compiled with the -fp flag so as the profiler gprof can work. A test file is provided during
+        each execution as a fresh binary so each output is consistent.
+
+        :param bin_path: The location of the binaries
+        :param output: The output from the binary execution
+        :return: A list of functions that were run during program execution
+        """
+        if output is None:
+            return None
+
+        # Run the profiler to check which functions have been touched in execution
+        ps = Popen(['gprof', '-b', '-p', bin_path], stdout=PIPE)
+        awk = Popen(['awk', "{print $7}"], stdin=ps.stdout, stdout=PIPE)
+        sed = Popen(["sed", "-r", "/^\s*$/d"], stdin=awk.stdout, stdout=PIPE)
+        output = check_output(['grep', '-v', 'name'], stdin=sed.stdout)
+        output = output.decode('utf-8').split('\n')
 
         # Remove the gprof file
         os.remove('gmon.out')
 
-        # Save the file to prevent running again
-        with open(all_functions_path, "w") as f:
-            f.write(json.dumps(all_functions))
-        return all_functions
+        return output
 
     @staticmethod
-    def _get_correctness_results(bin_dir, test_binary_list, used_functions):
+    def _encrypt_binary(file_path, used_functions):
+        """
+        Encrypts the binary in the path specified, only selecting those functions specified.
 
-        all_programs = {}
-
-        # The test binary used to modify
-        test_file = '../test/source/test'
-        dirname = os.path.dirname(__file__)
-        test_file = os.path.join(dirname, test_file)
-
-        # Encrypt all the binaries under test using the packer
-        for file in used_functions.keys():
-            file = os.path.join(bin_dir, file)
-            TestRunner._encrypt_binary(dirname, file, used_functions)
-
-        # Run each packed binary and compare it with the output of the original
-        for prog in test_binary_list.keys():
-            opts = test_binary_list[prog]
-            bin_name = prog.split(' ')[0]
-            bin_key = bin_name.split('/')[1]
-            prog = os.path.join(bin_dir, prog)
-
-            # Results
-            original = {}
-            packed = {}
-
-            for opt in opts:
-
-                # Copy the test binary new each time
-                test_bin = os.path.join(bin_dir, 'test')
-                copyfile(test_file, test_bin)
-
-                # Run the original program
-                run_string = prog.format(opt, test_bin).split(' ')
-                print(f"\t[+] {run_string}")
-                original[opt] = check_output(run_string)
-
-                # Run the packed program
-                run_string = prog.format(opt, test_bin).replace(bin_key, f"{bin_key}.packed").split(' ')
-                try:
-                    packed[opt] = check_output(run_string)
-                except Exception as ex:
-                    print(f"\t[+] {run_string} failed: {type(ex)}")
-                    packed[opt] = None
-
-            all_programs[bin_key] = CorrectnessTestResult(bin_key, original, packed)
-
-        return all_programs
-
-    @staticmethod
-    def _encrypt_binary(dirname, file_path, used_functions):
+        :param file_path: The path of the binary to encrypt
+        :param used_functions: The list of functions to select
+        """
         # Encrypt the binary using the list of functions provided
         rnd = Random(SEED)
         key = rnd.randint(0, 100)
@@ -430,11 +438,40 @@ class TestRunner:
         print(f"\t[+] Encrypting {len(chosen_funcs)} out of {len(all_functions)}")
         packer.encrypt(key, chosen_funcs)
 
+    @staticmethod
+    def _clean_packed_files(folder):
+        """
+        Removes any file with the ".packed" extension in the folder specified
+
+        :param folder: The folder to clean
+        """
+        for root, _, files in os.walk(folder):
+            for file in files:
+                file = os.path.join(root, file)
+                if file.endswith('packed'):
+                    os.remove(file)
+
+    @staticmethod
+    def _create_packed_list(test_binary_list):
+        """
+        Modifies the list of binaries and arguments in the list, and appends ".packed" to the name of the binary.
+
+        :param test_binary_list: The original list of binaries with arguments
+        :return: The same input list with ".packed" appended to the binary name
+        """
+        packed_binary_list = test_binary_list.copy()
+        for key in test_binary_list.keys():
+            bin_key = key.split(' ')[0].split('/')[1]
+            packed_key = key.replace(bin_key, f"{bin_key}.packed")
+            packed_binary_list[packed_key] = packed_binary_list.pop(key)
+        return packed_binary_list
+
 
 def test_script():
     os.chdir('..')
     runner = TestRunner('test')
     runner.test_correctness(TEST_BINARY_LIST)
+
 
 if __name__ == "__main__":
     test_script()
