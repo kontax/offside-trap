@@ -578,8 +578,10 @@ class TestRunner:
 def test_script():
     os.chdir('..')
     runner = TestRunner('test', TEST_BINARY_LIST)
-    #runner.run_all_tests()
-    runner.test_size(TEST_BINARY_LIST)
+    results = runner.run_all_tests()
+    results_json = json.loads(results, intent=4)
+    with open('results.json', 'w') as f:
+        f.write(results_json)
 
 
 if __name__ == "__main__":
