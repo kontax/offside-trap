@@ -1,4 +1,6 @@
+import json
 import os
+from abc import ABC, abstractmethod
 from random import Random
 from shutil import copyfile
 from subprocess import Popen, check_output, PIPE
@@ -10,7 +12,7 @@ from elf_packer import ELFPacker
 SEED = 100  # Seed value for random key - used for consistent results
 
 
-class TestResult:
+class TestResult(ABC):
     def __init__(self, filename, original, packed):
         self.filename = filename
         self.original = original
@@ -21,6 +23,12 @@ class TestResult:
         self.packed_rate = self._get_packed_rate()
         self.benefit = self._get_benefit()
 
+        # Get any additional information
+        self.info = self._get_info()
+
+    def __str__(self):
+        return json.dumps(self.get_aggregated_results(), indent=4, sort_keys=True)
+
     def get_aggregated_results(self):
         """
         Gets a dict representation of the results of the scans.
@@ -28,10 +36,50 @@ class TestResult:
         :return: A dict representing the detection rates
         """
         return {
+            'info': self.info,
             'original': self.original_rate,
             'packed': self.packed_rate,
             'benefit': self.benefit
         }
+
+    @abstractmethod
+    def _get_original_rate(self):
+        pass
+
+    @abstractmethod
+    def _get_packed_rate(self):
+        pass
+
+    @abstractmethod
+    def _get_benefit(self):
+        pass
+
+    @abstractmethod
+    def _get_info(self):
+        pass
+
+
+class CorrectnessTestResult(TestResult):
+
+    def __init__(self, filename, original, packed):
+        super().__init__(filename, original, packed)
+
+    def _get_original_rate(self):
+        return 1.0
+
+    def _get_packed_rate(self):
+        correct = 0
+        for key in self.packed.keys():
+            if self.packed[key] == self.original[key]:
+                correct += 1
+
+        return correct / (len(self.packed.keys()) * 1.0)
+
+    def _get_benefit(self):
+        return self.packed_rate
+
+    def _get_info(self):
+        return None
 
 
 class DetectionTest:
@@ -47,13 +95,13 @@ class DetectionTest:
         self.original = original
         self.packed = packed
 
+        # Store the detection rates and calculate the benefit of packing
+        self.original_detection_rate = self.get_original_rate()
+        self.packed_detection_rate = self.get_packed_rate()
+        self.benefit = self._get_benefit()
+
         # Get the most popular name of the virus if any exist
         self.name = self._get_most_popular_name()
-
-        # Store the detection rates and calculate the benefit of packing
-        self.original_detection_rate = self.get_original_detection_rate()
-        self.packed_detection_rate = self.get_packed_detection_rate()
-        self.benefit = self._get_benefit()
 
     def get_aggregated_results(self):
         """
@@ -68,11 +116,11 @@ class DetectionTest:
             'benefit': self.benefit
         }
 
-    def get_original_detection_rate(self):
+    def get_original_rate(self):
         """ Gets the aggregated results of the scan of the original file """
         return self._get_detection_rate('original')
 
-    def get_packed_detection_rate(self):
+    def get_packed_rate(self):
         """ Gets the aggregated results of the scan of the packed file """
         return self._get_detection_rate('packed')
 
@@ -113,8 +161,8 @@ class DetectionTest:
 
         :return: A float representing the improvement of undetected rates of the binary.
         """
-        orig = self.get_original_detection_rate()
-        packed = self.get_packed_detection_rate()
+        orig = self.get_original_rate()
+        packed = self.get_packed_rate()
         return (orig - packed) / orig if orig > 0 else 0
 
 
@@ -133,7 +181,7 @@ class TestRunner:
         if len(diff) > 0:
             raise AssertionError("The test folder must contain 'virus' and 'bin' subfolders containing test binaries")
 
-        self.test_folder = test_folder
+        self.test_folder = os.path.abspath(test_folder)
 
     def run_all_tests(self):
         """
@@ -194,19 +242,23 @@ class TestRunner:
 
         # Repack the rest of the files and test each one
         print('[*] Packing and testing correctness')
-        speed_results = self._get_correctness_results(bin_dir, test_binary_list, used_functions)
+        return self._get_correctness_results(bin_dir, test_binary_list, used_functions)
 
     def test_speed(self, test_binary_list):
-        print("[*] Testing execution speed")
+        print("[*] Testing execution correctness")
         bin_dir = os.path.join(self.test_folder, 'bin')
 
         # Clean up any already packed files
         print("[*] Cleaning up previously packed files")
         self._clean_packed_files(bin_dir)
 
+        # Evaluate the functions that are called in general use
+        print("[*] Retrieving functions used in general execution to limit encryption effect")
+        used_functions = self._get_used_functions(bin_dir, test_binary_list)
+
         # Repack the rest of the files and test each one
-        print('[*] Packing and testing speed')
-        speed_results = self._get_speed_results(bin_dir)
+        print('[*] Packing and testing correctness')
+        return self._get_speed_results(bin_dir, test_binary_list, used_functions)
 
     @staticmethod
     def _get_detection_results(virus_dir):
@@ -260,9 +312,16 @@ class TestRunner:
         :return: A dict of binaries and the functions they've run during execution
         """
         all_functions = {}
+        all_functions_filename = "all_functions.json"
+        all_functions_path = os.path.join(bin_dir, all_functions_filename)
+
+        # If we've already run this no need to do it again
+        if os.path.exists(all_functions_path):
+            with open(all_functions_path, 'r') as f:
+                return json.loads(f.read())
 
         # The test binary used to modify
-        test_file = 'test/source/test'
+        test_file = '../test/source/test'
         dirname = os.path.dirname(__file__)
         test_file = os.path.join(dirname, test_file)
 
@@ -271,17 +330,20 @@ class TestRunner:
             opts = test_binary_list[prog]
             bin_name = prog.split(' ')[0]
             bin_key = bin_name.split('/')[1]
+            bin_path = os.path.join(bin_dir, bin_key)
+            prog = os.path.join(bin_dir, prog)
 
             for opt in opts:
 
                 # Copy the test binary new each time
-                copyfile(test_file, bin_dir)
-                run_string = prog.format(opt).split(' ')
+                test_bin = os.path.join(bin_dir, 'test')
+                copyfile(test_file, test_bin)
+                run_string = prog.format(opt, test_bin).split(' ')
                 print(f"\t[+] {run_string}")
                 check_output(run_string)
 
                 # Run the profiler to check which functions have been touched in execution
-                ps = Popen(['gprof', '-b', '-p', bin_name], stdout=PIPE)
+                ps = Popen(['gprof', '-b', '-p', bin_path], stdout=PIPE)
                 awk = Popen(['awk', "{print $7}"], stdin=ps.stdout, stdout=PIPE)
                 sed = Popen(["sed", "-r", "/^\s*$/d"], stdin=awk.stdout, stdout=PIPE)
                 output = check_output(['grep', '-v', 'name'], stdin=sed.stdout)
@@ -296,57 +358,83 @@ class TestRunner:
             # Output the final function list as a sorted list
             all_functions[bin_key] = sorted(list(all_functions[bin_key]))
 
+        # Remove the gprof file
+        os.remove('gmon.out')
+
+        # Save the file to prevent running again
+        with open(all_functions_path, "w") as f:
+            f.write(json.dumps(all_functions))
         return all_functions
 
-    def _get_correctness_results(self, bin_dir, test_binary_list, used_functions):
+    @staticmethod
+    def _get_correctness_results(bin_dir, test_binary_list, used_functions):
 
-        test_file = 'test/source/test'
+        all_programs = {}
+
+        # The test binary used to modify
+        test_file = '../test/source/test'
         dirname = os.path.dirname(__file__)
         test_file = os.path.join(dirname, test_file)
 
+        # Encrypt all the binaries under test using the packer
         for file in used_functions.keys():
             file = os.path.join(bin_dir, file)
-            self._encrypt_binary(dirname, file, used_functions)
+            TestRunner._encrypt_binary(dirname, file, used_functions)
 
         # Run each packed binary and compare it with the output of the original
-        all_programs = {}
         for prog in test_binary_list.keys():
             opts = test_binary_list[prog]
             bin_name = prog.split(' ')[0]
             bin_key = bin_name.split('/')[1]
+            prog = os.path.join(bin_dir, prog)
+
+            # Results
+            original = {}
+            packed = {}
 
             for opt in opts:
 
                 # Copy the test binary new each time
-                copyfile(test_file, bin_dir)
+                test_bin = os.path.join(bin_dir, 'test')
+                copyfile(test_file, test_bin)
 
                 # Run the original program
-                run_string = prog.format(opt).split(' ')
+                run_string = prog.format(opt, test_bin).split(' ')
                 print(f"\t[+] {run_string}")
-                original = check_output(run_string)
+                original[opt] = check_output(run_string)
 
                 # Run the packed program
-                run_string = prog.format(opt).replace(bin_key, f"{bin_key}.packed").split(' ')
-                packed = check_output(run_string)
+                run_string = prog.format(opt, test_bin).replace(bin_key, f"{bin_key}.packed").split(' ')
+                try:
+                    packed[opt] = check_output(run_string)
+                except Exception as ex:
+                    print(f"\t[+] {run_string} failed: {type(ex)}")
+                    packed[opt] = None
 
-                # Store the functions as a set to remove duplicates
-                if bin_key not in all_programs:
-                    all_programs[bin_key] = set()
+            all_programs[bin_key] = CorrectnessTestResult(bin_key, original, packed)
 
-                all_programs[bin_key].update(output.split('\n'))
+        return all_programs
 
-            # Output the final function list as a sorted list
-            all_functions[bin_key] = sorted(list(all_functions[bin_key]))
-
-    def _encrypt_binary(self, dirname, file, used_functions):
+    @staticmethod
+    def _encrypt_binary(dirname, file_path, used_functions):
         # Encrypt the binary using the list of functions provided
-        full_path = os.path.join(dirname, file)
         rnd = Random(SEED)
         key = rnd.randint(0, 100)
-        packer = ELFPacker(full_path)
+        packer = ELFPacker(file_path)
         all_functions = packer.list_functions()
         chosen_funcs = []
         for af in all_functions:
-            if af.name in used_functions[file]:
+            if af.name in used_functions[os.path.basename(file_path)] \
+                    and 'bfd' not in af.name:  # TODO: Remove this
                 chosen_funcs.append(af)
-        packer.encrypt(key, all_functions)
+        print(f"\t[+] Encrypting {len(chosen_funcs)} out of {len(all_functions)}")
+        packer.encrypt(key, chosen_funcs)
+
+
+def test_script():
+    os.chdir('..')
+    runner = TestRunner('test')
+    runner.test_correctness(TEST_BINARY_LIST)
+
+if __name__ == "__main__":
+    test_script()
