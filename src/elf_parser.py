@@ -325,6 +325,111 @@ class ELF:
         assert (end - start == len(interp_seg.data))
         self.data[start:end] = interp_seg.data
 
+    def append_loadable_segment_2(self, size):
+
+        # Get the segment loading the program header
+        phdr_segment = [s for s in self.segments
+                        if s.p_type == ProgramType.PT_LOAD
+                        and s.p_offset <= self.phdr.p_offset
+                        and s.p_offset + s.p_filesz >= self.phdr.p_offset + self.phdr.p_filesz][0]
+
+        # Increase the size of the segment to account for the new segment being added
+        phdr_segment.p_filesz += self.e_phentsize
+        phdr_segment.p_memsz += self.e_phentsize
+
+        # Shift any segments after the program header over by the size of an entry
+        marker = self.phdr.p_offset + self.phdr.p_filesz
+        self._shift_data(marker)
+        self._shift_segments(marker)
+        self._shift_sections(marker)
+
+        # Create new segment
+        new_segment = self._create_new_segment(size)
+        packed = pack(new_segment.hdr_struct, *new_segment.header)
+        self.segments.append(new_segment)
+
+        # Add header to end of header section
+        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
+        self._full_data[offset:offset + self.e_phentsize] = packed
+        self.e_phnum += 1
+
+        return new_segment
+
+    def _shift_data(self, marker):
+        init_marker = marker
+        next_segment = [s for s in self.segments if init_marker <= s.p_offset <= init_marker + self.e_phentsize][0]
+        moved_segments = []
+        p_offset = next_segment.p_offset
+        while next_segment is not None:
+            moved_segments.append(next_segment)
+            marker = next_segment.p_offset + next_segment.p_filesz
+            p_offset += self.e_phentsize
+            try:
+                next_segment = [s for s in self.segments
+                                if marker <= s.p_offset <= marker + self.e_phentsize
+                                and s not in moved_segments][0]
+            except IndexError:
+                next_segment = None
+
+        moved_sections = []
+        next_section = [s for s in self.sections if init_marker <= s.sh_offset <= init_marker + self.e_phentsize][0]
+        sh_offset = next_section.sh_offset
+        while next_section is not None:
+            moved_sections.append(next_section)
+            marker = next_section.sh_offset + next_section.sh_size
+            sh_offset += self.e_phentsize
+            try:
+                next_section = [s for s in self.sections
+                                if marker <= s.sh_offset <= marker + self.e_phentsize
+                                and s not in moved_sections][0]
+            except IndexError:
+                next_section = None
+
+        max_end = init_marker
+        for segment in moved_segments:
+            seg_end = segment.p_offset + segment.p_filesz
+            max_end = seg_end if max_end < seg_end else max_end
+
+        for section in moved_sections:
+            sec_end = section.sh_offset + section.sh_size
+            max_end = sec_end if max_end < sec_end else max_end
+
+        self.data[init_marker+self.e_phentsize:max_end+self.e_phentsize] = self.data[init_marker:max_end]
+
+    def _shift_segments(self, marker):
+        next_segment = [s for s in self.segments if marker <= s.p_offset <= marker + self.e_phentsize][0]
+        moved_segments = []
+        while next_segment is not None:
+            moved_segments.append(next_segment)
+            marker = next_segment.p_offset + next_segment.p_filesz
+            next_segment.p_offset += self.e_phentsize
+            next_segment.p_vaddr += self.e_phentsize
+            try:
+                next_segment = [s for s in self.segments
+                                if marker <= s.p_offset <= marker + self.e_phentsize
+                                and s not in moved_segments][0]
+            except IndexError:
+                next_segment = None
+
+        # for segment in (sorted(moved_segments, key=lambda s: s.p_offset, reverse=True)):
+        #     self.data[segment.p_offset:segment.p_offset + segment.p_filesz] = segment.data
+
+    def _shift_sections(self, marker):
+        next_section = [s for s in self.sections if marker <= s.sh_offset <= marker + self.e_phentsize][0]
+        moved_sections = []
+        while next_section is not None:
+            moved_sections.append(next_section)
+            marker = next_section.sh_offset + next_section.sh_size
+            next_section.sh_offset += self.e_phentsize
+            next_section.sh_addr += self.e_phentsize
+            try:
+                next_section = [s for s in self.sections
+                                if marker <= s.sh_offset <= marker + self.e_phentsize
+                                and s not in moved_sections][0]
+            except IndexError:
+                next_section = None
+
+
     def _create_new_segment(self, size):
         """
         Creates a new Segment object at the correct alignment/offset within the binary and populates the header with
@@ -990,3 +1095,12 @@ class Function:
 
     def __str__(self):
         return f"{self.name} @ 0x{self.start_addr:x}"
+
+
+if __name__ == '__main__':
+    filename = '/home/james/dev/offside-trap/test/source/test'
+    packed_filename = f"{filename}.packed"
+    elf = ELF(filename)
+    elf.append_loadable_segment_2(400)
+    with open(packed_filename, 'wb') as f:
+        f.write(elf.data)
