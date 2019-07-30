@@ -91,7 +91,7 @@ class ELFMachine(Enum):
     EM_UNKNOWN13 = 13
     EM_UNKNOWN14 = 14
     EM_PA_RISC = 15  # PA-RISC
-    EM_PARISC = EM_PA_RISC        # Alias: GNU compatibility
+    EM_PARISC = EM_PA_RISC  # Alias: GNU compatibility
     EM_nCUBE = 16  # nCUBE
     EM_VPP500 = 17  # Fujitsu VPP500
     EM_SPARC32PLUS = 18  # Sun SPARC 32+
@@ -99,7 +99,7 @@ class ELFMachine(Enum):
     EM_PPC = 20  # PowerPC
     EM_PPC64 = 21  # 64-bit PowerPC
     EM_S390 = 22  # IBM System/390 Processor
-    EM_UNKNOWN22 = EM_S390                # Alias: Older published name
+    EM_UNKNOWN22 = EM_S390  # Alias: Older published name
     EM_UNKNOWN23 = 23
     EM_UNKNOWN24 = 24
     EM_UNKNOWN25 = 25
@@ -140,7 +140,7 @@ class ELFMachine(Enum):
     EM_ST100 = 60  # STMicroelectronics ST100 processor
     EM_TINYJ = 61  # Advanced Logic Corp. TinyJ
     EM_AMD64 = 62  # AMDs x86-64 architecture
-    EM_X86_64 = EM_AMD64          # (compatibility)
+    EM_X86_64 = EM_AMD64  # (compatibility)
     EM_PDSP = 63  # Sony DSP Processor
     EM_UNKNOWN64 = 64
     EM_UNKNOWN65 = 65
@@ -180,7 +180,7 @@ class ELFMachine(Enum):
 
 
 class ProgramType(Enum):
-    PT_NULL = 0   # p_type
+    PT_NULL = 0  # p_type
     PT_LOAD = 1
     PT_DYNAMIC = 2
     PT_INTERP = 3
@@ -279,3 +279,62 @@ class SymbolType(Enum):
     STT_HIOS = 12
     STT_LOPROC = 13  # Processor-specific use
     STT_HIPROC = 15
+
+
+""" SPECIFIC SEGMENT TYPES """
+
+class DynamicTag(Enum):
+    DT_NULL = 0  # Marks the end of the dynamic array
+    DT_NEEDED = 1  # The string table offset of the name of a needed library
+    DT_PLTRELSZ = 2  # Total size, in bytes, of the relocation entries associated with the procedure linkage table.
+    DT_PLTGOT = 3  # Contains an address associated with the linkage table. The specific meaning of this field is
+    # processor-dependent.
+    DT_HASH = 4  # Address of the symbol hash table, described below.
+    DT_STRTAB = 5  # Address of the dynamic string table.
+    DT_SYMTAB = 6  # Address of the dynamic symbol table.
+    DT_RELA = 7  # Address of a relocation table with Elf64_Rela entries.
+    DT_RELASZ = 8  # Total size, in bytes, of the DT_RELA relocation table.
+    DT_RELAENT = 9  # Size, in bytes, of each DT_RELA relocation entry.
+    DT_STRSZ = 10  # Total size, in bytes, of the string table.
+    DT_SYMENT = 11  # Size, in bytes, of each symbol table entry.
+    DT_INIT = 12  # Address of the initialization function.
+    DT_FINI = 13  # Address of the termination function.
+    DT_SONAME = 14  # The string table offset of the name of this shared object.
+    DT_RPATH = 15  # The string table offset of a shared library search path string.
+    DT_SYMBOLIC = 16  # The presence of this dynamic table entry modifies the symbol resolution algorithm for
+    # references within the library. Symbols defined within the library are used to resolve references before the
+    # dynamic linker searches the usual search path.
+    DT_REL = 17  # Address of a relocation table with Elf64_Rel entries.
+    DT_RELSZ = 18  # Total size, in bytes, of the DT_REL relocation table.
+    DT_RELENT = 19  # Size, in bytes, of each DT_REL relocation entry.
+    DT_PLTREL = 20  # Type of relocation entry used for the procedure linkage table. The d_val member contains either
+    # DT_REL or DT_RELA.
+    DT_DEBUG = 21  # Reserved for debugger use.
+    DT_TEXTREL = 22  # The presence of this dynamic table entry signals that the relocation table contains
+    # relocations for a non-writable segment.
+    DT_JMPREL = 23  # Address of the relocations associated with the procedure linkage table.
+    DT_BIND_NOW = 24  # The presence of this dynamic table entry signals that the dynamic loader should process all
+    # relocations for this object before transferring control to the program.
+    DT_INIT_ARRAY = 25  # Pointer to an array of pointers to initialization functions.
+    DT_FINI_ARRAY = 26  # Pointer to an array of pointers to termination functions.
+    DT_INIT_ARRAYSZ = 27  # Size, in bytes, of the array of initialization functions.
+    DT_FINI_ARRAYSZ = 28  # Size, in bytes, of the array of termination functions.
+    OLD_DT_LOOS = 0x60000000
+    DT_LOOS = 0x6000000d  # Defines a range of dynamic table tags that are reserved for environment-specific use.
+    DT_HIOS = 0x6ffff000
+    DT_VALRNGLO = 0x6ffffd00
+    DT_VALRNGHI = 0x6ffffdff
+    DT_ADDRRNGLO = 0x6ffffe00
+    DT_GNU_HASH = 0x6ffffef5
+    DT_ADDRRNGHI = 0x6ffffeff
+    DT_VERSYM = 0x6ffffff0
+    DT_RELACOUNT = 0x6ffffff9
+    DT_RELCOUNT = 0x6ffffffa
+    DT_FLAGS_1 = 0x6ffffffb
+    DT_VERDEF = 0x6ffffffc
+    DT_VERDEFNUM = 0x6ffffffd
+    DT_VERNEED = 0x6ffffffe
+    DT_VERNEEDNUM = 0x6fffffff
+    OLD_DT_HIOS = 0x6fffffff
+    DT_LOPROC = 0x70000000  # Defines a range of dynamic table tags that are reserved for processor-specific use.
+    DT_HIPROC = 0x7FFFFFFF

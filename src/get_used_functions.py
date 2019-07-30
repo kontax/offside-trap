@@ -5,7 +5,7 @@ import os
 from shutil import copyfile
 from subprocess import check_output, Popen, PIPE
 from elf_packer import ELFPacker
-from elf_parser import Function
+from elf_symbol import Function
 
 FUNCTION_LIST = {
     './addr2line {} -e test 0x400000': [
