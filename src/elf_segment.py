@@ -1,6 +1,6 @@
 from struct import unpack
 
-from elf_enums import ProgramType, DynamicTag
+from elf_enums import *
 from helpers import parse_header, repack_header
 
 
@@ -10,6 +10,8 @@ class SegmentFactory:
         segment = Segment(data, segment_number, e_phoff, e_phentsize, header)
         if segment.p_type == ProgramType.PT_DYNAMIC:
             return DynamicSegment(data, segment_number, e_phoff, e_phentsize, header)
+        elif segment.p_type == ProgramType.PT_NOTE:
+            return NoteSegment(data, segment_number, e_phoff, e_phentsize, header)
         else:
             return segment
 
@@ -244,6 +246,40 @@ class DynamicSegment(Segment):
         return table
 
 
+class NoteSegment(Segment):
+    def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
+        super().__init__(data, segment_number, e_phoff, e_phentsize, header)
+        self.notes = self._parse_notes_data(self.data)
+
+    @staticmethod
+    def _parse_notes_data(data):
+        notes = []
+        # TODO: Extract bit size from ELF header to handle 32 bit binaries
+        word_size = 4
+        # Parse the data to extract the length
+        i = 0
+        while i < len(data):
+            namesz = unpack('I', data[i:i+word_size])[0]
+            i += word_size
+            descsz = unpack('I', data[i:i+word_size])[0]
+            i += word_size
+            note_type = unpack('I', data[i:i+word_size])[0]
+            i += word_size
+
+            # Ensure sizes are aligned correctly
+            name_pad = (word_size - namesz % word_size) % word_size
+            desc_pad = (word_size - descsz % word_size) % word_size
+
+            name = unpack(f"{namesz}s", data[i:i+namesz])[0].decode('utf-8').replace('\0', '')
+            i += namesz + name_pad
+            desc = unpack(f"{descsz}s", data[i:i+descsz])[0]
+            i += descsz + desc_pad
+
+            notes.append(Note(namesz, descsz, note_type, name, desc))
+
+        return notes
+
+
 class DynamicTableEntry:
     """ Dynamic Table Entry
     Elf64_Sxword        d_tag   /* Identifies the type of dynamic table entry */
@@ -292,3 +328,44 @@ class DynamicTableEntry:
 
     def _repack(self):
         repack_header(self._full_data, self.offset, 16, self.data, self.struct)
+
+
+class Note:
+
+    @property
+    def namesz(self):
+        """ Gets the size in bytes of the name of the note """
+        return self._namesz
+
+    @property
+    def descsz(self):
+        """ Gets the size in bytes of the notes description """
+        return self._descsz
+
+    @property
+    def name(self):
+        """ Gets the name of the note """
+        return self._name
+
+    @property
+    def desc(self):
+        """ Gets the notes description """
+        return self._desc
+
+    def __init__(self, namesz, descsz, note_type, name, desc):
+        self._namesz = namesz
+        self._descsz = descsz
+        self._type = GnuNoteType(note_type)
+        self._name = name
+
+        if name == 'GNU' and self._type == GnuNoteType.NT_GNU_ABI_TAG:
+            ver = unpack('IIII', desc)
+            self._desc = f"Linux ABI: {ver[1]}.{ver[2]}.{ver[3]}"
+        elif name == 'GNU' and self._type == GnuNoteType.NT_GNU_BUILD_ID:
+            build_id = ''.join(f"{x:02x}" for x in desc)
+            self._desc = f"Build ID: {build_id}"
+        else:
+            self._desc = ''.join(f"{x:02x}" for x in desc)
+
+    def __str__(self):
+        return f"[{self.name}] {self.desc}"

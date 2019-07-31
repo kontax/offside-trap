@@ -201,6 +201,7 @@ class ProgramType(Enum):
     PT_GNU_EH_FRAME = 0x6474e550
     PT_GNU_STACK = 0x6474e551
     PT_GNU_RELRO = 0x6474e552
+    PT_GNU_PROPERTY = 0x6474e553
 
 
 """ SECTION HEADER """
@@ -283,6 +284,7 @@ class SymbolType(Enum):
 
 """ SPECIFIC SEGMENT TYPES """
 
+
 class DynamicTag(Enum):
     DT_NULL = 0  # Marks the end of the dynamic array
     DT_NEEDED = 1  # The string table offset of the name of a needed library
@@ -319,15 +321,42 @@ class DynamicTag(Enum):
     DT_FINI_ARRAY = 26  # Pointer to an array of pointers to termination functions.
     DT_INIT_ARRAYSZ = 27  # Size, in bytes, of the array of initialization functions.
     DT_FINI_ARRAYSZ = 28  # Size, in bytes, of the array of termination functions.
+    DT_RUNPATH = 29
+    DT_FLAGS = 30
+    DT_ENCODING = 32
+    DT_PREINIT_ARRAY = 32
+    DT_PREINIT_ARRAYSZ = 33
+    DT_SYMTAB_SHNDX = 34
     OLD_DT_LOOS = 0x60000000
-    DT_LOOS = 0x6000000d  # Defines a range of dynamic table tags that are reserved for environment-specific use.
+    DT_LOOS = 0x6000000d
     DT_HIOS = 0x6ffff000
+    OLD_DT_HIOS = 0x6fffffff
     DT_VALRNGLO = 0x6ffffd00
+    DT_GNU_PRELINKED = 0x6ffffdf5
+    DT_GNU_CONFLICTSZ = 0x6ffffdf6
+    DT_GNU_LIBLISTSZ = 0x6ffffdf7
+    DT_CHECKSUM = 0x6ffffdf8
+    DT_PLTPADSZ = 0x6ffffdf9
+    DT_MOVEENT = 0x6ffffdfa
+    DT_MOVESZ = 0x6ffffdfb
+    DT_FEATURE = 0x6ffffdfc
+    DT_POSFLAG_1 = 0x6ffffdfd
+    DT_SYMINSZ = 0x6ffffdfe
+    DT_SYMINENT = 0x6ffffdff
     DT_VALRNGHI = 0x6ffffdff
     DT_ADDRRNGLO = 0x6ffffe00
     DT_GNU_HASH = 0x6ffffef5
+    DT_TLSDESC_PLT = 0x6ffffef6
+    DT_TLSDESC_GOT = 0x6ffffef7
+    DT_GNU_CONFLICT = 0x6ffffef8
+    DT_GNU_LIBLIST = 0x6ffffef9
+    DT_CONFIG = 0x6ffffefa
+    DT_DEPAUDIT = 0x6ffffefb
+    DT_AUDIT = 0x6ffffefc
+    DT_PLTPAD = 0x6ffffefd
+    DT_MOVETAB = 0x6ffffefe
+    DT_SYMINFO = 0x6ffffeff
     DT_ADDRRNGHI = 0x6ffffeff
-    DT_VERSYM = 0x6ffffff0
     DT_RELACOUNT = 0x6ffffff9
     DT_RELCOUNT = 0x6ffffffa
     DT_FLAGS_1 = 0x6ffffffb
@@ -335,6 +364,23 @@ class DynamicTag(Enum):
     DT_VERDEFNUM = 0x6ffffffd
     DT_VERNEED = 0x6ffffffe
     DT_VERNEEDNUM = 0x6fffffff
-    OLD_DT_HIOS = 0x6fffffff
-    DT_LOPROC = 0x70000000  # Defines a range of dynamic table tags that are reserved for processor-specific use.
-    DT_HIPROC = 0x7FFFFFFF
+    DT_VERSYM = 0x6ffffff0
+    DT_LOPROC = 0x70000000
+    DT_HIPROC = 0x7fffffff
+    DT_AUXILIARY = 0x7ffffffd
+    DT_USED = 0x7ffffffe
+    DT_FILTER = 0x7fffffff
+
+
+""" NOTE TYPES """
+
+
+# TODO: These only account for GNU note types - there could be others to parse
+
+
+class GnuNoteType(Enum):
+    NT_GNU_ABI_TAG = 1
+    NT_GNU_HWCAP = 2
+    NT_GNU_BUILD_ID = 3
+    NT_GNU_GOLD_VERSION = 4
+    NT_GNU_PROPERTY_TYPE_0 = 5
