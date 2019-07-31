@@ -1,5 +1,5 @@
 from elf_enums import SymbolBinding, SymbolType
-from elf_parser import parse_string_data, parse_header, repack_header
+from helpers import parse_string_data, parse_header, repack_header
 
 
 class Symbol:

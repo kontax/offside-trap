@@ -1,7 +1,7 @@
 from struct import unpack
 
 from elf_enums import ProgramType, DynamicTag
-from elf_parser import parse_header, repack_header
+from helpers import parse_header, repack_header
 
 
 class SegmentFactory:
