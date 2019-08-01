@@ -58,7 +58,7 @@ class SectionFactory:
         elif section_type == SectionType.SHT_DYNSYM:
             return SymbolTableSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_HASH:
-            return section  # TODO: Modify
+            return HashSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_GNU_HASH:
             return section  # TODO: Modify
         elif section_type == SectionType.SHT_NOTE:
@@ -299,3 +299,62 @@ class StringTableSection(Section):
     def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
         super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
         self.strings = self.data.decode('utf-8').split('\0')
+        
+
+class HashSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.hash_table = self._get_hash_table(self.data)
+
+    @staticmethod
+    def _get_hash_table(data):
+        buckets = []
+        chains = []
+
+        nbucket = unpack('I', data[0:8])[0]
+        nchain = unpack('I', data[8:16])[0]
+
+        hash_table = HashTable(nbucket, nchain, buckets, chains)
+
+        for i in range(nbucket):
+            offset = (i * 8) + 16
+            buckets.append(unpack('I', data[offset:offset+8]))
+
+        for i in range(nchain):
+            offset = (i * 8) + 16 + (8 * nbucket)
+            chains.append(unpack('I', data[offset:offset+8]))
+
+        return hash_table
+
+    @staticmethod
+    def hash(name):
+        h = 0
+        g = 0
+        for n in name:
+            print(f"n: \t\t{n}")
+            c = ord(n)
+            print(f"c = ord(n): \t\t{bin(c)}")
+            h = (h << 4) + c
+            print(f"h = (h << 4) + c: \t{bin(h)}")
+            g = h & 0xf0000000
+            print(f"g = h & 0xf0000000: \t{bin(g)}")
+            if g > 0:
+                h ^= g >> 24
+                print(f"if g > 0, h ^= g << 24: \t{bin(h)}")
+            h &= ~g
+            print(f"h &= ~g: \t\t{bin(h)} ({bin(~g)})")
+        return hex(h)
+
+
+class GnuHashSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.hash_table = self._get_hash_table(self.data)
+
+
+class HashTable:
+    def __init__(self, nbucket, nchain, buckets, chains):
+        self.nbucket = nbucket
+        self.nchain = nchain
+        self.buckets = buckets
+        self.chains = chains
