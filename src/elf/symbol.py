@@ -100,13 +100,22 @@ class Symbol:
         ) = self._parse_header(data, symbol_number)
 
         # Get the name of the symbol
-        if self.st_name > 0:
+        if self.st_name > 0 and header_names is not None:
             self.symbol_name = parse_string_data(header_names.decode('utf-8'), self.st_name)
         else:
             self.symbol_name = None
 
     def __str__(self):
         return f"{self.symbol_name} @ 0x{self.st_value:0x}: {self.st_info}"
+
+    def populate_names(self, strtab):
+        """ Populates the symbol with the text value it points to from the linked section.
+
+        :param strtab: The strtab section linked to the symtab section this symbol is part of
+        """
+        if self.st_name > 0 and strtab is not None:
+            self.symbol_name = parse_string_data(strtab.data.decode('utf-8'), self.st_name)
+
 
     def _parse_header(self, data, symbol_number):
         header = parse_header(data, symbol_number, self.sh_entsize, self.sh_offset, self.hdr_struct)
@@ -134,3 +143,11 @@ class SymbolInfo:
 
     def __str__(self):
         return f"[{self.st_type.name} @ {self.st_bind.name}]"
+
+
+def parse_symbols_data(full_data, offset, total_size, entity_size, header_names=None):
+    symbols = []
+    for i in range(int(total_size / entity_size)):
+        symbols.append(Symbol(full_data, i, offset, entity_size, header_names))
+
+    return symbols

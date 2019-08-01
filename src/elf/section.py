@@ -1,5 +1,49 @@
+from struct import unpack
+
+from elf.data import DynamicTableEntry, Note
 from elf.enums import SectionType
 from elf.helpers import parse_string_data, parse_header, repack
+from elf.symbol import parse_symbols_data
+
+
+def create_dynamic_table(full_data, data, offset):
+    i = 0
+    table = []
+    struct = 'QQ'
+    while i < len(data):
+        d_tag, d_un = unpack(struct, data[i:i + 16])
+        table.append(DynamicTableEntry(full_data, d_tag, d_un, offset + i, struct))
+        i += 16
+
+    return table
+
+
+def parse_notes_data(data):
+    notes = []
+    # TODO: Extract bit size from ELF header to handle 32 bit binaries
+    word_size = 4
+    # Parse the data to extract the length
+    i = 0
+    while i < len(data):
+        namesz = unpack('I', data[i:i+word_size])[0]
+        i += word_size
+        descsz = unpack('I', data[i:i+word_size])[0]
+        i += word_size
+        note_type = unpack('I', data[i:i+word_size])[0]
+        i += word_size
+
+        # Ensure sizes are aligned correctly
+        name_pad = (word_size - namesz % word_size) % word_size
+        desc_pad = (word_size - descsz % word_size) % word_size
+
+        name = unpack(f"{namesz}s", data[i:i+namesz])[0].decode('utf-8').replace('\0', '')
+        i += namesz + name_pad
+        desc = unpack(f"{descsz}s", data[i:i+descsz])[0]
+        i += descsz + desc_pad
+
+        notes.append(Note(namesz, descsz, note_type, name, desc))
+
+    return notes
 
 
 class SectionFactory:
@@ -10,19 +54,23 @@ class SectionFactory:
         section_type = SectionType(section_header[1])
         section = Section(data, section_number, e_shoff, e_shentsize, header_names)
         if section_type == SectionType.SHT_DYNAMIC:
-            return section
+            return DynamicSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_DYNSYM:
-            return section
+            return SymbolTableSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_HASH:
-            return section
+            return section  # TODO: Modify
+        elif section_type == SectionType.SHT_GNU_HASH:
+            return section  # TODO: Modify
         elif section_type == SectionType.SHT_NOTE:
-            return section
+            return NoteSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_REL:
-            return section
+            return section  # TODO: Modify
         elif section_type == SectionType.SHT_RELA:
-            return section
+            return section  # TODO: Modify
         elif section_type == SectionType.SHT_SYMTAB:
-            return section
+            return SymbolTableSection(data, section_number, e_shoff, e_shentsize, header_names)
+        elif section_type == SectionType.SHT_STRTAB:
+            return StringTableSection(data, section_number, e_shoff, e_shentsize, header_names)
         else:
             return Section(data, section_number, e_shoff, e_shentsize, header_names)
 
@@ -228,3 +276,26 @@ class DynamicSection(Section):
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
 
+        self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.sh_offset)
+
+
+class NoteSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.notes = parse_notes_data(self.data)
+
+
+class SymbolTableSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.symbol_table = parse_symbols_data(self._full_data, self.sh_offset, self.sh_size, self.sh_entsize, None)
+
+    def populate_symbol_names(self, strtab):
+        for symbol in self.symbol_table:
+            symbol.populate_names(strtab)
+
+
+class StringTableSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.strings = self.data.decode('utf-8').split('\0')

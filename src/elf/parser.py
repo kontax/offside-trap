@@ -3,7 +3,7 @@ from struct import unpack, pack
 import r2pipe
 
 from elf.enums import *
-from elf.section import Section, SectionFactory
+from elf.section import Section, SectionFactory, SymbolTableSection
 from elf.segment import Segment, SegmentFactory
 from elf.symbol import Symbol
 from elf.helpers import repack
@@ -168,21 +168,17 @@ class ELF:
             section = SectionFactory.create_section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data)
             self.sections.append(section)
 
+        for symtab in [s for s in self.sections if type(s) is SymbolTableSection]:
+            strtab = self.sections[symtab.sh_link]
+            symtab.populate_symbol_names(strtab)
+            self.symbols.extend(symtab.symbol_table)
+
         # Associate each section with the segment it's contained within
         for s in self.segments:
             s.load_sections(self.sections)
 
         # Whether the ELF is statically or dynamically linked
         self._linking_method = ELFLinkingMethod(len([x for x in self.sections if x.section_name == '.interp']))
-
-        # Extract the Symbols
-        symtab = next(iter([x for x in self.sections if x.section_name == '.symtab']), None)
-        strtab = next(iter([x for x in self.sections if x.section_name == '.strtab']), None)
-
-        # Take stripped binaries into account
-        if symtab is not None:
-            for i in range(int(symtab.sh_size / symtab.sh_entsize)):
-                self.symbols.append(Symbol(self.data, i, symtab.sh_offset, symtab.sh_entsize, strtab.data))
 
         # Associate each symbol with the section it's contained within
         for s in self.sections:

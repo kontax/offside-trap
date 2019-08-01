@@ -1,8 +1,6 @@
-from struct import unpack
-
-from elf.data import DynamicTableEntry, Note
 from elf.enums import *
 from elf.helpers import parse_header, repack
+from elf.section import create_dynamic_table, parse_notes_data
 
 
 class SegmentFactory:
@@ -236,52 +234,10 @@ class DynamicSegment(Segment):
     """ Contains the dynamic linking tables used to store details on dynamically loaded libraries. """
     def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
         super().__init__(data, segment_number, e_phoff, e_phentsize, header)
-        self.dynamic_table = self._create_dynamic_table(self.data)
-
-    def _create_dynamic_table(self, data):
-        i = 0
-        table = []
-        struct = 'QQ'
-        offset = self.p_offset
-        while i < len(data):
-            d_tag, d_un = unpack(struct, data[i:i + 16])
-            table.append(DynamicTableEntry(self._full_data, d_tag, d_un, offset + i, struct))
-            i += 16
-
-        return table
+        self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.p_offset)
 
 
 class NoteSegment(Segment):
     def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
         super().__init__(data, segment_number, e_phoff, e_phentsize, header)
-        self.notes = self._parse_notes_data(self.data)
-
-    @staticmethod
-    def _parse_notes_data(data):
-        notes = []
-        # TODO: Extract bit size from ELF header to handle 32 bit binaries
-        word_size = 4
-        # Parse the data to extract the length
-        i = 0
-        while i < len(data):
-            namesz = unpack('I', data[i:i+word_size])[0]
-            i += word_size
-            descsz = unpack('I', data[i:i+word_size])[0]
-            i += word_size
-            note_type = unpack('I', data[i:i+word_size])[0]
-            i += word_size
-
-            # Ensure sizes are aligned correctly
-            name_pad = (word_size - namesz % word_size) % word_size
-            desc_pad = (word_size - descsz % word_size) % word_size
-
-            name = unpack(f"{namesz}s", data[i:i+namesz])[0].decode('utf-8').replace('\0', '')
-            i += namesz + name_pad
-            desc = unpack(f"{descsz}s", data[i:i+descsz])[0]
-            i += descsz + desc_pad
-
-            notes.append(Note(namesz, descsz, note_type, name, desc))
-
-        return notes
-
-
+        self.notes = parse_notes_data(self.data)
