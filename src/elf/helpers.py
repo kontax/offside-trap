@@ -30,6 +30,14 @@ def parse_header(data, entity_number, entsize, h_offset, hdr_struct):
     return unpack(hdr_struct, extract_data)
 
 
-def repack_header(data, hdr_offset, hdr_size, hdr, hdr_struct):
-    end_offset = hdr_offset + hdr_size
-    data[hdr_offset:end_offset] = pack(hdr_struct, *hdr)
+def repack(full_data, offset, size, data_segment, struct):
+    """ Rebuilds the binary data with any changes that may have occurred.
+    
+    :param full_data: The full bytearray for the binary
+    :param offset: The offset in bytes of the data being updated within the full data
+    :param size: The size in bytes of the data being updated
+    :param data_segment: The value of the updated segment of data
+    :param struct: Format of the data to be packed
+    """
+    end_offset = offset + size
+    full_data[offset:end_offset] = pack(struct, *data_segment)

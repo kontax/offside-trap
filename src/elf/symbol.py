@@ -1,5 +1,5 @@
-from elf_enums import SymbolBinding, SymbolType
-from helpers import parse_string_data, parse_header, repack_header
+from elf.enums import SymbolBinding, SymbolType
+from elf.helpers import parse_string_data, parse_header, repack
 
 
 class Symbol:
@@ -121,7 +121,7 @@ class Symbol:
 
     def _repack_header(self):
         offset = self.sh_offset + (self.symbol_number * self.sh_entsize)
-        repack_header(self._full_data, offset, self.sh_entsize, self.header, self.hdr_struct)
+        repack(self._full_data, offset, self.sh_entsize, self.header, self.hdr_struct)
 
 
 class SymbolInfo:

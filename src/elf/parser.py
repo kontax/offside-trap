@@ -2,11 +2,11 @@ from struct import unpack, pack
 
 import r2pipe
 
-from elf_enums import *
-from elf_section import Section
-from elf_segment import Segment, SegmentFactory
-from elf_symbol import Symbol
-from helpers import repack_header
+from elf.enums import *
+from elf.section import Section, SectionFactory
+from elf.segment import Segment, SegmentFactory
+from elf.symbol import Symbol
+from elf.helpers import repack
 
 """
 ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
@@ -165,7 +165,8 @@ class ELF:
 
         # Extract the Sections
         for i in range(self.e_shnum):
-            self.sections.append(Section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data))
+            section = SectionFactory.create_section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data)
+            self.sections.append(section)
 
         # Associate each section with the segment it's contained within
         for s in self.segments:
@@ -501,7 +502,7 @@ class ELF:
 
     def _repack_header(self):
         """ Re-packs the header once edits have been made, so as to propogate any changes within the binary data """
-        repack_header(self._full_data, 0, self.e_ehsize, self.header, self.hdr_struct)
+        repack(self._full_data, 0, self.e_ehsize, self.header, self.hdr_struct)
 
 
 class Function:
@@ -523,6 +524,7 @@ class Function:
         return f"{self.name} @ 0x{self.start_addr:x}"
 
 
+# TODO: Delete
 if __name__ == '__main__':
     filename = '/home/james/dev/offside-trap/test/source/test'
     packed_filename = f"{filename}.packed"

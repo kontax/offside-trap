@@ -3,8 +3,8 @@ import stat
 from struct import unpack, pack
 from subprocess import check_output
 
-from elf_enums import ELFFileType
-from elf_parser import ELF
+from elf.enums import ELFFileType
+from elf.parser import ELF
 
 BYTES_TO_SAVE = 0xf
 TABLE_ENTRY_SIZE = 0x20

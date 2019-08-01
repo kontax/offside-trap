@@ -1,3 +1,8 @@
+""" Enums used to represent various values within the ELF binary. These were taken from a variety of sources, including:
+ * ELF Specification
+ * BinUtils source code (/utils/common/elf.h)
+ * System V ABI documentation
+"""
 from enum import Enum
 
 
@@ -222,11 +227,11 @@ class SectionType(Enum):
     SHT_DYNSYM = 11  # Contains a dynamic loader symbol table
     SHT_UNKNOWN12 = 12
     SHT_UNKNOWN13 = 13
-    SHT_INIT_ARRAY = 14
-    SHT_FINI_ARRAY = 15
-    SHT_PREINIT_ARRAY = 16
-    SHT_GROUP = 17
-    SHT_SYMTAB_SHNDX = 18
+    SHT_INIT_ARRAY = 14  # Array of pointers to init functions
+    SHT_FINI_ARRAY = 15  # Array of pointers to finish functions
+    SHT_PREINIT_ARRAY = 16  # Array of pointers to pre-init functions
+    SHT_GROUP = 17  # Section contains a section group
+    SHT_SYMTAB_SHNDX = 18  # Indeces for SHN_XINDEX entries
     SHT_NUM = 19
     SHT_LOOS = 0x60000000  # OS specific range
     SHT_LOSUNW = 0x6ffffff1
@@ -370,12 +375,6 @@ class DynamicTag(Enum):
     DT_AUXILIARY = 0x7ffffffd
     DT_USED = 0x7ffffffe
     DT_FILTER = 0x7fffffff
-
-
-""" NOTE TYPES """
-
-
-# TODO: These only account for GNU note types - there could be others to parse
 
 
 class GnuNoteType(Enum):

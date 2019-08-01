@@ -1,5 +1,30 @@
-from elf_enums import SectionType
-from helpers import parse_string_data, parse_header, repack_header
+from elf.enums import SectionType
+from elf.helpers import parse_string_data, parse_header, repack
+
+
+class SectionFactory:
+    @staticmethod
+    def create_section(data, section_number, e_shoff, e_shentsize, header_names=None):
+        hdr_struct = "IIQQQQIIQQ"
+        section_header = parse_header(data, section_number, e_shentsize, e_shoff, hdr_struct)
+        section_type = SectionType(section_header[1])
+        section = Section(data, section_number, e_shoff, e_shentsize, header_names)
+        if section_type == SectionType.SHT_DYNAMIC:
+            return section
+        elif section_type == SectionType.SHT_DYNSYM:
+            return section
+        elif section_type == SectionType.SHT_HASH:
+            return section
+        elif section_type == SectionType.SHT_NOTE:
+            return section
+        elif section_type == SectionType.SHT_REL:
+            return section
+        elif section_type == SectionType.SHT_RELA:
+            return section
+        elif section_type == SectionType.SHT_SYMTAB:
+            return section
+        else:
+            return Section(data, section_number, e_shoff, e_shentsize, header_names)
 
 
 class Section:
@@ -196,4 +221,10 @@ class Section:
 
     def _repack_header(self):
         offset = self.e_shoff + (self.section_number * self.e_shentsize)
-        repack_header(self._full_data, offset, self.e_shentsize, self.header, self.hdr_struct)
+        repack(self._full_data, offset, self.e_shentsize, self.header, self.hdr_struct)
+
+
+class DynamicSection(Section):
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
+
