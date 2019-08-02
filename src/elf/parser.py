@@ -519,9 +519,16 @@ class Function:
     def __str__(self):
         return f"{self.name} @ 0x{self.start_addr:x}"
 
-
 # TODO: Delete
-if __name__ == '__main__':
+def hash_table():
+    filename = '/home/james/dev/offside-trap/test/bin/strings'
+    elf = ELF(filename)
+    ht = elf.get_section('.hash')
+    sym = elf.get_section('.dynsym').symbol_table
+    x = ht.find('fread', sym)
+    print(x)
+
+def pack_file():
     filename = '/home/james/dev/offside-trap/test/source/test'
     packed_filename = f"{filename}.packed"
     elf = ELF(filename)
@@ -529,3 +536,7 @@ if __name__ == '__main__':
     elf.segments[6].dynamic_table[7].d_un = 1024
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)
+
+
+if __name__ == '__main__':
+    hash_table()

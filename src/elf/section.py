@@ -63,6 +63,8 @@ class SectionFactory:
             return GnuHashSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_NOTE:
             return NoteSection(data, section_number, e_shoff, e_shentsize, header_names)
+        elif section_type == SectionType.SHT_PROGBITS:
+            return CodeSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_REL:
             return section  # TODO: Modify
         elif section_type == SectionType.SHT_RELA:
@@ -333,7 +335,18 @@ class HashSection(Section):
             if g > 0:
                 h ^= g >> 24
             h &= ~g
-        return hex(h)
+        return h
+
+    def find(self, name, symbols):
+        hashed = self.hash(name)
+        bucket = hashed % self.hash_table.nbucket
+        ix = self.hash_table.buckets[bucket]
+        candidate = symbols[ix].symbol_name
+        chain = self.hash_table.chains[ix]
+        while name != symbols[ix].symbol_name and self.hash_table.chains[ix] != 0:
+            ix = self.hash_table.chains[ix]
+
+        return None if ix == 0 else symbols[ix]
 
 
 class GnuHashSection(Section):
@@ -369,6 +382,17 @@ class GnuHashSection(Section):
             h = (h << 5) + h + ord(n)
 
         return h & 0xffffffff
+
+
+class CodeSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.assembly = None
+
+    def _get_assembly(self):
+        print("Not impelemented yet")
+        if self.assembly is None:
+            return None
 
 
 class HashTable:
