@@ -338,11 +338,12 @@ class HashSection(Section):
         return h
 
     def find(self, name, symbols):
+        if name is None:
+            return None
+        
         hashed = self.hash(name)
         bucket = hashed % self.hash_table.nbucket
         ix = self.hash_table.buckets[bucket]
-        candidate = symbols[ix].symbol_name
-        chain = self.hash_table.chains[ix]
         while name != symbols[ix].symbol_name and self.hash_table.chains[ix] != 0:
             ix = self.hash_table.chains[ix]
 
@@ -382,6 +383,21 @@ class GnuHashSection(Section):
             h = (h << 5) + h + ord(n)
 
         return h & 0xffffffff
+
+    def find(self, name, symbols):
+        if name is None:
+            return "None"
+
+        ht = self.hash_table
+        hashed = self.hash(name)
+        bloom_check = ht.bloom[int((hashed / 64) % ht.bloom_size)]
+        check1 = bin(bloom_check)[(hashed % 64)]
+        check2 = bin(bloom_check)[(hashed >> ht.bloom_shift) % 64]
+        # TODO: Don't use strings
+        if bin(bloom_check)[(hashed % 64)] != '1' or bin(bloom_check)[(hashed >> ht.bloom_shift) % 64] != '1':
+            return "Nope"
+
+        return "Found"
 
 
 class CodeSection(Section):

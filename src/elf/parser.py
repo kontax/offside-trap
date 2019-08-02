@@ -523,9 +523,11 @@ class Function:
 def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
-    ht = elf.get_section('.hash')
+    ht = elf.get_section('.gnu.hash')
     sym = elf.get_section('.dynsym').symbol_table
-    x = ht.find('fread', sym)
+    for st in sym:
+        print(f"{st}: {ht.find(st.symbol_name, sym)}")
+    #x = ht.find('fread', sym)
     print(x)
 
 def pack_file():

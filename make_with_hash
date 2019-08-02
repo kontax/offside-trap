@@ -1,0 +1,1 @@
+CFLAGS="-ggdb -O2 -Wl,--hash-style=both" ./configure --prefix=/usr
