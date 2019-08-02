@@ -60,7 +60,7 @@ class SectionFactory:
         elif section_type == SectionType.SHT_HASH:
             return HashSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_GNU_HASH:
-            return section  # TODO: Modify
+            return GnuHashSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_NOTE:
             return NoteSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_REL:
@@ -309,40 +309,30 @@ class HashSection(Section):
     @staticmethod
     def _get_hash_table(data):
         buckets = []
-        chains = []
+        chain = []
 
-        nbucket = unpack('I', data[0:8])[0]
-        nchain = unpack('I', data[8:16])[0]
+        (nbucket, nchain) = unpack('II', data[0:8])
 
-        hash_table = HashTable(nbucket, nchain, buckets, chains)
+        start = 8
+        buckets.extend(unpack('I'*nbucket, data[start:start + nbucket * 4]))
 
-        for i in range(nbucket):
-            offset = (i * 8) + 16
-            buckets.append(unpack('I', data[offset:offset+8]))
+        start = start + (nbucket * 4)
+        chain.extend(unpack('I'*nchain, data[start:start + nchain * 4]))
 
-        for i in range(nchain):
-            offset = (i * 8) + 16 + (8 * nbucket)
-            chains.append(unpack('I', data[offset:offset+8]))
+        hash_table = HashTable(nbucket, nchain, buckets, chain)
 
         return hash_table
 
     @staticmethod
     def hash(name):
         h = 0
-        g = 0
         for n in name:
-            print(f"n: \t\t{n}")
             c = ord(n)
-            print(f"c = ord(n): \t\t{bin(c)}")
             h = (h << 4) + c
-            print(f"h = (h << 4) + c: \t{bin(h)}")
             g = h & 0xf0000000
-            print(f"g = h & 0xf0000000: \t{bin(g)}")
             if g > 0:
                 h ^= g >> 24
-                print(f"if g > 0, h ^= g << 24: \t{bin(h)}")
             h &= ~g
-            print(f"h &= ~g: \t\t{bin(h)} ({bin(~g)})")
         return hex(h)
 
 
@@ -351,6 +341,35 @@ class GnuHashSection(Section):
         super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
         self.hash_table = self._get_hash_table(self.data)
 
+    @staticmethod
+    def _get_hash_table(data):
+        bloom = []
+        buckets = []
+        chain = []
+
+        (nbucket, symoffset, bloom_size, bloom_shift) = unpack('IIII', data[0:16])
+
+        start = 16
+        bloom.extend(unpack('Q'*bloom_size, data[start:start + bloom_size * 8]))
+
+        start = start + bloom_size * 8
+        buckets.extend(unpack('I'*nbucket, data[start:start + nbucket * 4]))
+
+        start = start + nbucket * 4
+        nchain = (len(data) - start) / 4
+        nchain = int(nchain)
+        chain.extend(unpack('I'*nchain, data[start:start + nchain * 4]))
+
+        return GnuHashTable(nbucket, symoffset, bloom_size, bloom_shift, bloom, buckets, chain)
+
+    @staticmethod
+    def hash(name):
+        h = 5381
+        for n in name:
+            h = (h << 5) + h + ord(n)
+
+        return h & 0xffffffff
+
 
 class HashTable:
     def __init__(self, nbucket, nchain, buckets, chains):
@@ -358,3 +377,14 @@ class HashTable:
         self.nchain = nchain
         self.buckets = buckets
         self.chains = chains
+
+
+class GnuHashTable:
+    def __init__(self, nbucket, symoffset, bloom_size, bloom_shift, bloom, buckets, chain):
+        self.nbucket = nbucket
+        self.symoffset = symoffset
+        self.bloom_size = bloom_size
+        self.bloom_shift = bloom_shift
+        self.bloom = bloom
+        self.buckets = buckets
+        self.chain = chain
