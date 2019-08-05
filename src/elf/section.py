@@ -310,6 +310,11 @@ class HashSection(Section):
 
     @staticmethod
     def _get_hash_table(data):
+        """ Creates a HashTable object given the bytearray representation of it.
+
+        :param data: A bytearray representation of the hashtable
+        :return: A HashTable object.
+        """
         buckets = []
         chain = []
 
@@ -327,6 +332,11 @@ class HashSection(Section):
 
     @staticmethod
     def hash(name):
+        """ Hash algorithm used for the SYSV hashing method.
+
+        :param name: The name of the symbol to hash
+        :return: A 32 bit hash value of the symbol used
+        """
         h = 0
         for n in name:
             c = ord(n)
@@ -337,17 +347,24 @@ class HashSection(Section):
             h &= ~g
         return h
 
-    def find(self, name, symbols):
+    def find(self, name, symtab):
+        """ Uses the SYSV hash lookup algorithm to search for a symbol name within the symbol table. Note the symtab
+        is generally the value of the sh_link index within the collection of sections.
+
+        :param name: The name of the symbol to search for
+        :param symtab: The ELF symtab - a collection of Symbol objects
+        :return: A Symbol object if the symbol is found, otherwise None
+        """
         if name is None:
             return None
         
         hashed = self.hash(name)
         bucket = hashed % self.hash_table.nbucket
         ix = self.hash_table.buckets[bucket]
-        while name != symbols[ix].symbol_name and self.hash_table.chains[ix] != 0:
+        while name != symtab[ix].symbol_name and self.hash_table.chains[ix] != 0:
             ix = self.hash_table.chains[ix]
 
-        return None if ix == 0 else symbols[ix]
+        return None if ix == 0 else symtab[ix]
 
 
 class GnuHashSection(Section):
@@ -357,6 +374,11 @@ class GnuHashSection(Section):
 
     @staticmethod
     def _get_hash_table(data):
+        """ Creates a GnuHashTable object given the bytearray representation of it.
+
+        :param data: A bytearray representation of the hashtable
+        :return: A GnuHashTable object.
+        """
         bloom = []
         buckets = []
         chain = []
@@ -378,26 +400,59 @@ class GnuHashSection(Section):
 
     @staticmethod
     def hash(name):
+        """ Hash algorithm used for the GNU hashing method.
+
+        :param name: The name of the symbol to hash
+        :return: A 32 bit hash value of the symbol used
+        """
         h = 5381
         for n in name:
             h = (h << 5) + h + ord(n)
 
         return h & 0xffffffff
 
-    def find(self, name, symbols):
+    def find(self, name, symtab):
+        """ Uses the GNU hash lookup algorithm, including a bloom filter, to search for a symbol name within
+        the symbol table. Note the symtab is generally the value of the sh_link index within the collection of sections.
+
+        :param name: The name of the symbol to search for
+        :param symtab: The ELF symtab - a collection of Symbol objects
+        :return: A Symbol object if the symbol is found, otherwise None
+        """
         if name is None:
             return "None"
 
+        elf_class = 64
+
         ht = self.hash_table
         hashed = self.hash(name)
-        bloom_check = ht.bloom[int((hashed / 64) % ht.bloom_size)]
-        check1 = bin(bloom_check)[(hashed % 64)]
-        check2 = bin(bloom_check)[(hashed >> ht.bloom_shift) % 64]
-        # TODO: Don't use strings
-        if bin(bloom_check)[(hashed % 64)] != '1' or bin(bloom_check)[(hashed >> ht.bloom_shift) % 64] != '1':
-            return "Nope"
 
-        return "Found"
+        # Use the bloom algorithm to check if the symbol could be within the table
+        bloom_ix = int((hashed / 64) % ht.bloom_size)
+        bloom_check = ht.bloom[bloom_ix]
+        if not (bloom_check >> (hashed % 64)) & (bloom_check >> ((hashed >> ht.bloom_shift) % elf_class)) & 1:
+            return None
+
+        # Perform the index search
+        ix = ht.buckets[hashed % ht.nbucket]
+        if ix < ht.symoffset:
+            return None
+
+        # Loop through the chain
+        while True:
+            hash_comp = ht.chain[ix - ht.symoffset]
+
+            # The last bit is used to signify the end of the chain
+            if (hash_comp | 1) == (hashed | 1) and name == symtab[ix].symbol_name:
+                return symtab[ix]
+
+            # Finish here if the last bit is set
+            if hash_comp & 1:
+                break
+
+            ix += 1
+
+        return None
 
 
 class CodeSection(Section):

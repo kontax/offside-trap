@@ -524,10 +524,11 @@ def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.gnu.hash')
-    sym = elf.get_section('.dynsym').symbol_table
-    for st in sym:
-        print(f"{st}: {ht.find(st.symbol_name, sym)}")
-    #x = ht.find('fread', sym)
+    sym = elf.sections[ht.sh_link].symbol_table
+    for st in sym[ht.hash_table.symoffset:]:
+        found = ht.find(st.symbol_name, sym)
+        print(f"{st.symbol_name}: {found}")
+    x = ht.find('asdfasdf', sym)
     print(x)
 
 def pack_file():
