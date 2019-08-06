@@ -6,6 +6,52 @@ from elf.helpers import parse_string_data, parse_header, repack
 from elf.symbol import parse_symbols_data
 
 
+def create_dynamic_table(full_data, data, offset):
+    """ Creates a dynamic table containing references to symbols within the dynamic strtab.
+    :return: A list of DynamicTableEntry objects
+    """
+    i = 0
+    table = []
+    struct = 'QQ'
+    while i < len(data):
+        d_tag, d_un = unpack(struct, data[i:i + 16])
+        table.append(DynamicTableEntry(full_data, d_tag, d_un, offset + i, struct))
+        i += 16
+
+    return table
+
+
+def parse_notes_data(data):
+    """ Parses the section data to extract a list of notes from within the binary
+    :return: A list of Note objects
+    """
+    notes = []
+    # TODO: Extract bit size from ELF header to handle 32 bit binaries
+    word_size = 4
+    # Parse the data to extract the length
+    i = 0
+    while i < len(data):
+        namesz = unpack('I', data[i:i + word_size])[0]
+        i += word_size
+        descsz = unpack('I', data[i:i + word_size])[0]
+        i += word_size
+        note_type = unpack('I', data[i:i + word_size])[0]
+        i += word_size
+
+        # Ensure sizes are aligned correctly
+        name_pad = (word_size - namesz % word_size) % word_size
+        desc_pad = (word_size - descsz % word_size) % word_size
+
+        name = unpack(f"{namesz}s", data[i:i + namesz])[0].decode('utf-8').replace('\0', '')
+        i += namesz + name_pad
+        desc = unpack(f"{descsz}s", data[i:i + descsz])[0]
+        i += descsz + desc_pad
+
+        notes.append(Note(namesz, descsz, note_type, name, desc))
+
+    return notes
+
+
 class SectionFactory:
     @staticmethod
     def create_section(data, section_number, e_shoff, e_shentsize, header_names=None):
@@ -278,21 +324,7 @@ class DynamicSection(Section):
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
 
-        self.dynamic_table = self._create_dynamic_table()
-
-    def _create_dynamic_table(self):
-        """ Creates a dynamic table containing references to symbols within the dynamic strtab.
-        :return: A list of DynamicTableEntry objects
-        """
-        i = 0
-        table = []
-        struct = 'QQ'
-        while i < len(self.data):
-            d_tag, d_un = unpack(struct, self.data[i:i + 16])
-            table.append(DynamicTableEntry(self._full_data, d_tag, d_un, self.sh_offset + i, struct))
-            i += 16
-
-        return table
+        self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.sh_offset)
 
 
 class NoteSection(Section):
@@ -308,37 +340,7 @@ class NoteSection(Section):
         :param header_names: The list of names given to sections if available
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
-        self.notes = self._parse_notes_data()
-
-    def _parse_notes_data(self):
-        """ Parses the section data to extract a list of notes from within the binary
-        :return: A list of Note objects
-        """
-        notes = []
-        # TODO: Extract bit size from ELF header to handle 32 bit binaries
-        word_size = 4
-        # Parse the data to extract the length
-        i = 0
-        while i < len(self.data):
-            namesz = unpack('I', self.data[i:i + word_size])[0]
-            i += word_size
-            descsz = unpack('I', self.data[i:i + word_size])[0]
-            i += word_size
-            note_type = unpack('I', self.data[i:i + word_size])[0]
-            i += word_size
-
-            # Ensure sizes are aligned correctly
-            name_pad = (word_size - namesz % word_size) % word_size
-            desc_pad = (word_size - descsz % word_size) % word_size
-
-            name = unpack(f"{namesz}s", self.data[i:i + namesz])[0].decode('utf-8').replace('\0', '')
-            i += namesz + name_pad
-            desc = unpack(f"{descsz}s", self.data[i:i + descsz])[0]
-            i += descsz + desc_pad
-
-            notes.append(Note(namesz, descsz, note_type, name, desc))
-
-        return notes
+        self.notes = parse_notes_data(self.data)
 
 
 class SymbolTableSection(Section):
@@ -588,7 +590,15 @@ class RelocationSection(Section):
         self.relocation_table = self._get_rel_table()
 
     def set_linked_section(self, sections):
+        """ Sets the linked_section property from the sh_link header value
+
+        :param sections: The full collection of sections within the binary
+        """
         super().set_linked_section(sections)
+        if self.linked_section is None:
+            return
+
+        # Link each symbol within the relocation table to a symbol in the symtab
         for entry in self.relocation_table:
             entry.update_symbol(self.linked_section.symbol_table)
 

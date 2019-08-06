@@ -3,10 +3,9 @@ from struct import unpack, pack
 import r2pipe
 
 from elf.enums import *
+from elf.helpers import repack
 from elf.section import Section, SectionFactory, SymbolTableSection
 from elf.segment import Segment, SegmentFactory
-from elf.symbol import Symbol
-from elf.helpers import repack
 
 """
 ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
@@ -520,13 +519,24 @@ class Function:
     def __str__(self):
         return f"{self.name} @ 0x{self.start_addr:x}"
 
-# TODO: Delete
+# TODO: Consider turning these into tests
 def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.hash')
     sym = elf.sections[ht.sh_link].symbol_table
     for st in sym:
+        found = ht.find(st.symbol_name)
+        print(f"{st.symbol_name}: {found}")
+    x = ht.find('asdfasdf')
+    print(x)
+
+def gnu_hash_table():
+    filename = '/home/james/dev/offside-trap/test/bin/strings'
+    elf = ELF(filename)
+    ht = elf.get_section('.gnu.hash')
+    sym = elf.sections[ht.sh_link].symbol_table
+    for st in sym[ht.hash_table.symoffset:]:
         found = ht.find(st.symbol_name)
         print(f"{st.symbol_name}: {found}")
     x = ht.find('asdfasdf')
@@ -543,4 +553,4 @@ def pack_file():
 
 
 if __name__ == '__main__':
-    hash_table()
+    pack_file()
