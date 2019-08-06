@@ -6,53 +6,21 @@ from elf.helpers import parse_string_data, parse_header, repack
 from elf.symbol import parse_symbols_data
 
 
-def create_dynamic_table(full_data, data, offset):
-    i = 0
-    table = []
-    struct = 'QQ'
-    while i < len(data):
-        d_tag, d_un = unpack(struct, data[i:i + 16])
-        table.append(DynamicTableEntry(full_data, d_tag, d_un, offset + i, struct))
-        i += 16
-
-    return table
-
-
-def parse_notes_data(data):
-    notes = []
-    # TODO: Extract bit size from ELF header to handle 32 bit binaries
-    word_size = 4
-    # Parse the data to extract the length
-    i = 0
-    while i < len(data):
-        namesz = unpack('I', data[i:i+word_size])[0]
-        i += word_size
-        descsz = unpack('I', data[i:i+word_size])[0]
-        i += word_size
-        note_type = unpack('I', data[i:i+word_size])[0]
-        i += word_size
-
-        # Ensure sizes are aligned correctly
-        name_pad = (word_size - namesz % word_size) % word_size
-        desc_pad = (word_size - descsz % word_size) % word_size
-
-        name = unpack(f"{namesz}s", data[i:i+namesz])[0].decode('utf-8').replace('\0', '')
-        i += namesz + name_pad
-        desc = unpack(f"{descsz}s", data[i:i+descsz])[0]
-        i += descsz + desc_pad
-
-        notes.append(Note(namesz, descsz, note_type, name, desc))
-
-    return notes
-
-
 class SectionFactory:
     @staticmethod
     def create_section(data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Creates a new section dependent on the value of the section type.
+
+        :param data: The bytearray representation of the binary
+        :param section_number: The index of the section within the section table
+        :param e_shoff: The offset in bytes of the section header from the start of the binary
+        :param e_shentsize: The size in bytes of each entry within the section header table
+        :param header_names: The list of names given to sections if available
+        :return: A Section or subclass
+        """
         hdr_struct = "IIQQQQIIQQ"
         section_header = parse_header(data, section_number, e_shentsize, e_shoff, hdr_struct)
         section_type = SectionType(section_header[1])
-        section = Section(data, section_number, e_shoff, e_shentsize, header_names)
         if section_type == SectionType.SHT_DYNAMIC:
             return DynamicSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_DYNSYM:
@@ -218,6 +186,14 @@ class Section:
         return self._linked_section
 
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new Section object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
         self._full_data = data
         self.hdr_struct = "IIQQQQIIQQ"
         self.e_shoff = e_shoff  # Section header offset
@@ -288,21 +264,96 @@ class Section:
 
 
 class DynamicSection(Section):
+    """ The dynamic section contains references to a string table holding the list of symbols the binary loads
+    via the dynamic loader. """
+
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new DynamicSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
 
-        self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.sh_offset)
+        self.dynamic_table = self._create_dynamic_table()
+
+    def _create_dynamic_table(self):
+        """ Creates a dynamic table containing references to symbols within the dynamic strtab.
+        :return: A list of DynamicTableEntry objects
+        """
+        i = 0
+        table = []
+        struct = 'QQ'
+        while i < len(self.data):
+            d_tag, d_un = unpack(struct, self.data[i:i + 16])
+            table.append(DynamicTableEntry(self._full_data, d_tag, d_un, self.sh_offset + i, struct))
+            i += 16
+
+        return table
 
 
 class NoteSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
-        self.notes = parse_notes_data(self.data)
+    """ Contains special information that other programs will check for conformance, compatibility, etc. """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new NoteSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
+        self.notes = self._parse_notes_data()
+
+    def _parse_notes_data(self):
+        """ Parses the section data to extract a list of notes from within the binary
+        :return: A list of Note objects
+        """
+        notes = []
+        # TODO: Extract bit size from ELF header to handle 32 bit binaries
+        word_size = 4
+        # Parse the data to extract the length
+        i = 0
+        while i < len(self.data):
+            namesz = unpack('I', self.data[i:i + word_size])[0]
+            i += word_size
+            descsz = unpack('I', self.data[i:i + word_size])[0]
+            i += word_size
+            note_type = unpack('I', self.data[i:i + word_size])[0]
+            i += word_size
+
+            # Ensure sizes are aligned correctly
+            name_pad = (word_size - namesz % word_size) % word_size
+            desc_pad = (word_size - descsz % word_size) % word_size
+
+            name = unpack(f"{namesz}s", self.data[i:i + namesz])[0].decode('utf-8').replace('\0', '')
+            i += namesz + name_pad
+            desc = unpack(f"{descsz}s", self.data[i:i + descsz])[0]
+            i += descsz + desc_pad
+
+            notes.append(Note(namesz, descsz, note_type, name, desc))
+
+        return notes
 
 
 class SymbolTableSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ Contains a collection of symbols used by the binary. """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new SymbolTableSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.symbol_table = parse_symbols_data(self._full_data, self.sh_offset, self.sh_size, self.sh_entsize, None)
 
     def populate_symbol_names(self, strtab):
@@ -311,14 +362,35 @@ class SymbolTableSection(Section):
 
 
 class StringTableSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ Contains a list of strings usually referenced by a symbol table section. """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new StringTableSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.strings = self.data.decode('utf-8').split('\0')
-        
+
 
 class HashSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ A representation of the SYSV hashtable, which has mostly been replaced by the newer GNU hash table for
+    performance reasons. """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new HashSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = self._get_hash_table(self.data)
 
     @staticmethod
@@ -334,10 +406,10 @@ class HashSection(Section):
         (nbucket, nchain) = unpack('II', data[0:8])
 
         start = 8
-        buckets.extend(unpack('I'*nbucket, data[start:start + nbucket * 4]))
+        buckets.extend(unpack('I' * nbucket, data[start:start + nbucket * 4]))
 
         start = start + (nbucket * 4)
-        chain.extend(unpack('I'*nchain, data[start:start + nchain * 4]))
+        chain.extend(unpack('I' * nchain, data[start:start + nchain * 4]))
 
         hash_table = HashTable(nbucket, nchain, buckets, chain)
 
@@ -360,29 +432,40 @@ class HashSection(Section):
             h &= ~g
         return h
 
-    def find(self, name, symtab):
-        """ Uses the SYSV hash lookup algorithm to search for a symbol name within the symbol table. Note the symtab
-        is generally the value of the sh_link index within the collection of sections.
+    def find(self, name):
+        """ Uses the SYSV hash lookup algorithm to search for a symbol name within the symbol table from the linked
+        section found by sh_link.
 
         :param name: The name of the symbol to search for
-        :param symtab: The ELF symtab - a collection of Symbol objects
         :return: A Symbol object if the symbol is found, otherwise None
         """
         if name is None:
             return None
-        
+
+        symtab = self.linked_section.symbol_table
         hashed = self.hash(name)
         bucket = hashed % self.hash_table.nbucket
         ix = self.hash_table.bucket[bucket]
-        while name != symtab[ix].symbol_name and self.hash_table.chains[ix] != 0:
-            ix = self.hash_table.chains[ix]
+        while name != symtab[ix].symbol_name and self.hash_table.chain[ix] != 0:
+            ix = self.hash_table.chain[ix]
 
-        return None if ix == 0 else symtab[ix]
+        return None if name != symtab[ix].symbol_name and self.hash_table.chain[ix] == 0 else symtab[ix]
 
 
 class GnuHashSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ A representation of the GNU hash table, which has mostly superseded the original SYSV hash table by implementing
+    a bloom lookup for performance reasons. """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new GnuHashSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = self._get_hash_table(self.data)
 
     @staticmethod
@@ -399,15 +482,15 @@ class GnuHashSection(Section):
         (nbucket, symoffset, bloom_size, bloom_shift) = unpack('IIII', data[0:16])
 
         start = 16
-        bloom.extend(unpack('Q'*bloom_size, data[start:start + bloom_size * 8]))
+        bloom.extend(unpack('Q' * bloom_size, data[start:start + bloom_size * 8]))
 
         start = start + bloom_size * 8
-        buckets.extend(unpack('I'*nbucket, data[start:start + nbucket * 4]))
+        buckets.extend(unpack('I' * nbucket, data[start:start + nbucket * 4]))
 
         start = start + nbucket * 4
         nchain = (len(data) - start) / 4
         nchain = int(nchain)
-        chain.extend(unpack('I'*nchain, data[start:start + nchain * 4]))
+        chain.extend(unpack('I' * nchain, data[start:start + nchain * 4]))
 
         return GnuHashTable(nbucket, symoffset, bloom_size, bloom_shift, bloom, buckets, chain)
 
@@ -424,12 +507,11 @@ class GnuHashSection(Section):
 
         return h & 0xffffffff
 
-    def find(self, name, symtab):
+    def find(self, name):
         """ Uses the GNU hash lookup algorithm, including a bloom filter, to search for a symbol name within
-        the symbol table. Note the symtab is generally the value of the sh_link index within the collection of sections.
+        the symbol table found via the sh_link property.
 
         :param name: The name of the symbol to search for
-        :param symtab: The ELF symtab - a collection of Symbol objects
         :return: A Symbol object if the symbol is found, otherwise None
         """
         if name is None:
@@ -439,6 +521,7 @@ class GnuHashSection(Section):
 
         ht = self.hash_table
         hashed = self.hash(name)
+        symtab = self.linked_section.symbol_table
 
         # Use the bloom algorithm to check if the symbol could be within the table
         bloom_ix = int((hashed / 64) % ht.bloom_size)
@@ -469,8 +552,18 @@ class GnuHashSection(Section):
 
 
 class CodeSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ Contains executable data, such as .text or .plt """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new CodeSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.assembly = None
 
     def _get_assembly(self):
@@ -480,8 +573,18 @@ class CodeSection(Section):
 
 
 class RelocationSection(Section):
-    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
-        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+    """ Contains details on connecting symbolic references with symbolic definitions """
+
+    def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
+        """ Instantiates a new RelocationSection object
+
+        :param data: The full bytearray containing ELF data
+        :param section_number: The index of the section within the ELF section list
+        :param e_shoff: The offset of the section header within the file in bytes
+        :param e_shentsize: The entity size of each section header entry in bytes
+        :param header_names: The list of names given to sections if available
+        """
+        super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.relocation_table = self._get_rel_table()
 
     def set_linked_section(self, sections):
@@ -496,10 +599,10 @@ class RelocationSection(Section):
         for i in range(num_entries):
             offset = i * self.sh_entsize
             if self.sh_type == SectionType.SHT_REL:
-                (r_offset, r_info) = unpack("QQ", self.data[offset:offset+self.sh_entsize])
+                (r_offset, r_info) = unpack("QQ", self.data[offset:offset + self.sh_entsize])
                 table.append(RelTableEntry(r_offset, r_info))
             elif self.sh_type == SectionType.SHT_RELA:
-                (r_offset, r_info, r_addend) = unpack("QQQ", self.data[offset:offset+self.sh_entsize])
+                (r_offset, r_info, r_addend) = unpack("QQQ", self.data[offset:offset + self.sh_entsize])
                 table.append(RelaTableEntry(r_offset, r_info, r_addend))
             else:
                 # Should not get here
@@ -509,15 +612,36 @@ class RelocationSection(Section):
 
 
 class HashTable:
-    def __init__(self, nbucket, nchain, bucket, chains):
+    """ The object containing details about the SYSV hash table """
+
+    def __init__(self, nbucket, nchain, bucket, chain):
+        """ Instantiates a new HashTable
+
+        :param nbucket: The number of buckets within the table
+        :param nchain: The number of chains within the table
+        :param bucket: The bucket
+        :param chain: The chain
+        """
         self.nbucket = nbucket
         self.nchain = nchain
         self.bucket = bucket
-        self.chains = chains
+        self.chain = chain
 
 
 class GnuHashTable:
+    """ The object containing details about the GNU hash table """
+
     def __init__(self, nbucket, symoffset, bloom_size, bloom_shift, bloom, bucket, chain):
+        """ Instantiate a new GnuHashTable object
+
+        :param nbucket: The number of buckets within the table
+        :param symoffset: The offset within the symbol table that the hash table points to
+        :param bloom_size: The size of the bloom filter
+        :param bloom_shift: The bloom shift
+        :param bloom: The bloom value
+        :param bucket: The bucket
+        :param chain: The chain
+        """
         self.nbucket = nbucket
         self.symoffset = symoffset
         self.bloom_size = bloom_size
@@ -528,12 +652,25 @@ class GnuHashTable:
 
 
 class RelTableEntry:
+    """ An entry into the relocation table, containing details about a single symbol relocation """
+
     def __init__(self, r_offset, r_info):
+        """ Instantiates a new RelTableEntry
+
+        :param r_offset: The location at which to apply the relocation action, the byte offset from the beginning of
+        the section to the storage unit affected by the relocation
+        :param r_info: A RelInfo object which gives both the symbol table index with respect to which the relocation
+        must be made, and the type of relocation to apply.
+        """
         self.r_offset = r_offset
         self.r_info = RelInfo(r_info)
         self.symbol = None
 
     def update_symbol(self, symtab):
+        """ Updates the symbol the relocation object points to as a Symbol object from the relevant symtab
+
+        :param symtab: The symbol table pointed to by the sections sh_link property
+        """
         if self.r_info.r_sym > 0:
             self.symbol = symtab[self.r_info.r_sym]
 
@@ -545,12 +682,30 @@ class RelTableEntry:
 
 
 class RelaTableEntry(RelTableEntry):
+    """ Similar to the RelTableEntry, however also includes an addend, which specifies a constant addend used to
+    compute the value to be stored into the relocatable field. """
+
     def __init__(self, r_offset, r_info, r_addend):
+        """ Instantiates a new RelaTableEntry
+
+        :param r_offset: The location at which to apply the relocation action, the byte offset from the beginning of
+        the section to the storage unit affected by the relocation
+        :param r_info: A RelInfo object which gives both the symbol table index with respect to which the relocation
+        must be made, and the type of relocation to apply.
+        :param r_addend: Specifies a constant addend used to compute the value to be stored into the relocatable field
+        """
         super().__init__(r_offset, r_info)
         self.r_addend = r_addend
 
 
 class RelInfo:
+    """ Contains information on a relocation object, including the symtab index and relocation type """
+
     def __init__(self, r_info):
+        """ Instantiates a new RelInfo object
+
+        :param r_info: A RelInfo object which gives both the symbol table index with respect to which the relocation
+        must be made, and the type of relocation to apply.
+        """
         self.r_sym = r_info >> 32
         self.r_type = RelocationType(r_info & 0xffffffff)

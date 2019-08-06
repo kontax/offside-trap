@@ -30,7 +30,9 @@
     1. Figure out how to set original entry point for PIE binary from new entry
     2. Modify offsets to all encryption/decryption code after header has been appended
     3. Encrypt entire binary between elf header and new section (?)
-15. Add linked sections to the section themselves
-    1. Modify hash lookups to only take a symbol name as the parameter
+15. ~~Add linked sections to the section themselves~~
+    1. ~~Modify hash lookups to only take a symbol name as the parameter~~
 16. Modify setters for section/segment subclasses and properties to update whenever changes are made, eg. if the symbol
     for a relocation changes, then the offsets, indexes and info may need to be modified.
+17. Rather than having static values for all the properties, look into having an overlay on top of the raw data, so
+    that whenever any values are modified or viewed they're on the top of "live" data.

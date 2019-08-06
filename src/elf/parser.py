@@ -524,12 +524,12 @@ class Function:
 def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
-    ht = elf.get_section('.gnu.hash')
+    ht = elf.get_section('.hash')
     sym = elf.sections[ht.sh_link].symbol_table
-    for st in sym[ht.hash_table.symoffset:]:
-        found = ht.find(st.symbol_name, sym)
+    for st in sym:
+        found = ht.find(st.symbol_name)
         print(f"{st.symbol_name}: {found}")
-    x = ht.find('asdfasdf', sym)
+    x = ht.find('asdfasdf')
     print(x)
 
 def pack_file():
@@ -543,4 +543,4 @@ def pack_file():
 
 
 if __name__ == '__main__':
-    pack_file()
+    hash_table()
