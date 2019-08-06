@@ -16,11 +16,11 @@
 8. Reduce size (or need completely) of table
 9. Encrypt bytes before adding them to the table
 10. Remove the necessity of making the text section writable (entry doesn't work on PIE)
-11. Find some malware
-    1. http://contagiodump.blogspot.com/
-    2. https://virusshare.com/
-    3. https://developers.virustotal.com/
-12. Figure out why there are differences in the outputs of cal
+11. ~~Find some malware~~
+    1. ~~http://contagiodump.blogspot.com/~~
+    2. ~~https://virusshare.com/~~
+    3. ~~https://developers.virustotal.com/~~
+12. ~~Figure out why there are differences in the outputs of cal~~
 13. Requirements:
     1. python
     2. virtualenv
@@ -30,3 +30,7 @@
     1. Figure out how to set original entry point for PIE binary from new entry
     2. Modify offsets to all encryption/decryption code after header has been appended
     3. Encrypt entire binary between elf header and new section (?)
+15. Add linked sections to the section themselves
+    1. Modify hash lookups to only take a symbol name as the parameter
+16. Modify setters for section/segment subclasses and properties to update whenever changes are made, eg. if the symbol
+    for a relocation changes, then the offsets, indexes and info may need to be modified.

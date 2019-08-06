@@ -1,7 +1,7 @@
 from struct import unpack
 
 from elf.data import DynamicTableEntry, Note
-from elf.enums import SectionType
+from elf.enums import *
 from elf.helpers import parse_string_data, parse_header, repack
 from elf.symbol import parse_symbols_data
 
@@ -66,9 +66,9 @@ class SectionFactory:
         elif section_type == SectionType.SHT_PROGBITS:
             return CodeSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_REL:
-            return section  # TODO: Modify
+            return RelocationSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_RELA:
-            return section  # TODO: Modify
+            return RelocationSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_SYMTAB:
             return SymbolTableSection(data, section_number, e_shoff, e_shentsize, header_names)
         elif section_type == SectionType.SHT_STRTAB:
@@ -212,12 +212,18 @@ class Section:
         """ Gets the collection of symbols that point to references within the section """
         return self._symbols
 
+    @property
+    def linked_section(self):
+        """ Gets a section refereneced by sh_link if one is present """
+        return self._linked_section
+
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
         self._full_data = data
         self.hdr_struct = "IIQQQQIIQQ"
         self.e_shoff = e_shoff  # Section header offset
         self.e_shentsize = e_shentsize
         self.section_number = section_number
+        self._linked_section = None
         self._symbols = []
         (
             self._sh_name,
@@ -250,6 +256,13 @@ class Section:
                             if x.st_value >= self.sh_addr
                             and x.st_value + x.st_size <= self.sh_addr + self.sh_size]
         self._symbols.extend(relevant_symbols)
+
+    def set_linked_section(self, sections):
+        """ Sets the linked_section property to whatever index is referenced in the sh_link property.
+
+        :param sections: A list of Section objects within the ELF
+        """
+        self._linked_section = sections[self.sh_link] if self.sh_link > 0 else None
 
     def __str__(self):
         return f"{self.section_name} @ {hex(self.sh_offset)}"
@@ -360,7 +373,7 @@ class HashSection(Section):
         
         hashed = self.hash(name)
         bucket = hashed % self.hash_table.nbucket
-        ix = self.hash_table.buckets[bucket]
+        ix = self.hash_table.bucket[bucket]
         while name != symtab[ix].symbol_name and self.hash_table.chains[ix] != 0:
             ix = self.hash_table.chains[ix]
 
@@ -434,7 +447,7 @@ class GnuHashSection(Section):
             return None
 
         # Perform the index search
-        ix = ht.buckets[hashed % ht.nbucket]
+        ix = ht.bucket[hashed % ht.nbucket]
         if ix < ht.symoffset:
             return None
 
@@ -466,20 +479,78 @@ class CodeSection(Section):
             return None
 
 
+class RelocationSection(Section):
+    def __init__(self, data, segment_number, e_shoff, e_shentsize, header_names=None):
+        super().__init__(data, segment_number, e_shoff, e_shentsize, header_names)
+        self.relocation_table = self._get_rel_table()
+
+    def set_linked_section(self, sections):
+        super().set_linked_section(sections)
+        for entry in self.relocation_table:
+            entry.update_symbol(self.linked_section.symbol_table)
+
+    def _get_rel_table(self):
+        num_entries = int(self.sh_size / self.sh_entsize)
+
+        table = []
+        for i in range(num_entries):
+            offset = i * self.sh_entsize
+            if self.sh_type == SectionType.SHT_REL:
+                (r_offset, r_info) = unpack("QQ", self.data[offset:offset+self.sh_entsize])
+                table.append(RelTableEntry(r_offset, r_info))
+            elif self.sh_type == SectionType.SHT_RELA:
+                (r_offset, r_info, r_addend) = unpack("QQQ", self.data[offset:offset+self.sh_entsize])
+                table.append(RelaTableEntry(r_offset, r_info, r_addend))
+            else:
+                # Should not get here
+                raise ValueError(f"Section type {self.sh_type} is invalid")
+
+        return table
+
+
 class HashTable:
-    def __init__(self, nbucket, nchain, buckets, chains):
+    def __init__(self, nbucket, nchain, bucket, chains):
         self.nbucket = nbucket
         self.nchain = nchain
-        self.buckets = buckets
+        self.bucket = bucket
         self.chains = chains
 
 
 class GnuHashTable:
-    def __init__(self, nbucket, symoffset, bloom_size, bloom_shift, bloom, buckets, chain):
+    def __init__(self, nbucket, symoffset, bloom_size, bloom_shift, bloom, bucket, chain):
         self.nbucket = nbucket
         self.symoffset = symoffset
         self.bloom_size = bloom_size
         self.bloom_shift = bloom_shift
         self.bloom = bloom
-        self.buckets = buckets
+        self.bucket = bucket
         self.chain = chain
+
+
+class RelTableEntry:
+    def __init__(self, r_offset, r_info):
+        self.r_offset = r_offset
+        self.r_info = RelInfo(r_info)
+        self.symbol = None
+
+    def update_symbol(self, symtab):
+        if self.r_info.r_sym > 0:
+            self.symbol = symtab[self.r_info.r_sym]
+
+    def __str__(self):
+        if self.symbol is not None:
+            return f"{self.r_info.r_type.name} @ {hex(self.r_offset)}: {self.symbol.symbol_name}"
+        else:
+            return f"{self.r_info.r_type.name} @ {hex(self.r_offset)}"
+
+
+class RelaTableEntry(RelTableEntry):
+    def __init__(self, r_offset, r_info, r_addend):
+        super().__init__(r_offset, r_info)
+        self.r_addend = r_addend
+
+
+class RelInfo:
+    def __init__(self, r_info):
+        self.r_sym = r_info >> 32
+        self.r_type = RelocationType(r_info & 0xffffffff)

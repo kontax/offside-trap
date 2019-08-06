@@ -183,6 +183,7 @@ class ELF:
         # Associate each symbol with the section it's contained within
         for s in self.sections:
             s.load_symbols(self.symbols)
+            s.set_linked_section(self.sections)
 
         self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
         self._set_headers()
@@ -542,4 +543,4 @@ def pack_file():
 
 
 if __name__ == '__main__':
-    hash_table()
+    pack_file()
