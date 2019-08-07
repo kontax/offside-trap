@@ -351,12 +351,9 @@ class ELF:
 
         # Create a new segment
         new_segment = self._create_new_segment(size + self.phdr.header.p_filesz)
-        packed = pack(new_segment.hdr_struct, *new_segment.header)
         self.segments.append(new_segment)
 
         # Add header entry to end of header section
-        offset = hdr.e_phoff + (hdr.e_phentsize * hdr.e_phnum)
-        self._full_data[offset:offset + hdr.e_phentsize] = packed
         hdr.e_phnum += 1
 
         return new_segment
@@ -625,7 +622,7 @@ def pack_file():
 
     # Regular segment
     elf.segments[1].header.p_offset = 0x3a8
-    elf.segments[1].header.p_type = 7
+    elf.segments[1].header.p_type = ProgramType.PT_HIPROC
 
     # Dynamic segment
     elf.segments[6].dynamic_table[0].d_tag = DynamicTag.DT_CHECKSUM
@@ -658,6 +655,14 @@ def pack_file():
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)
 
+def pack_file_2():
+    filename = '/home/james/dev/offside-trap/test/source/test'
+    packed_filename = f"{filename}.packed"
+    elf = ELF(filename)
+    elf.append_loadable_segment_3(400)
+
+    with open(packed_filename, 'wb') as f:
+        f.write(elf.data)
 
 if __name__ == '__main__':
-    pack_file()
+    pack_file_2()

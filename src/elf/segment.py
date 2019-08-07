@@ -38,7 +38,7 @@ class SegmentHeader(StructEntity):
 
     @p_type.setter
     def p_type(self, value):
-        self._set_value(0, value)
+        self._set_value(0, value.value)
 
     @property
     def p_flags(self):
@@ -115,6 +115,12 @@ class Segment:
         """ Gets the collection of sections contained within the segment"""
         return self._sections
 
+    @property
+    def live_data(self):
+        start = self.header.p_offset
+        end = self.header.p_offset + self.header.p_filesz
+        return self._full_data[start:end]
+
     def __init__(self, data, segment_number, e_phoff, e_phentsize, header=None):
         self._full_data = data
         self.hdr_struct = "IIQQQQQQ"
@@ -123,6 +129,8 @@ class Segment:
         self.segment_number = segment_number
         self._sections = []
         self.header = SegmentHeader(data, segment_number, e_phoff, e_phentsize)
+        if header is not None:
+            self._set_header_values(header)
 
         # Extract raw data
         self.data = data[self.header.p_offset:self.header.p_offset + self.header.p_filesz]
@@ -173,6 +181,19 @@ class Segment:
 
     def __str__(self):
         return f"{self.header.p_type} @ {hex(self.header.p_offset)}"
+
+    def _set_header_values(self, header):
+        """ Sets all the current segments header values to the values in the specified header
+        :param header: The header with the values to clone
+        """
+        self.header.p_type = ProgramType(header[0])
+        self.header.p_flags = header[1]
+        self.header.p_offset = header[2]
+        self.header.p_vaddr = header[3]
+        self.header.p_paddr = header[4]
+        self.header.p_filesz = header[5]
+        self.header.p_memsz = header[6]
+        self.header.p_align = header[7]
 
 
 class DynamicSegment(Segment):

@@ -16,6 +16,18 @@ class StructEntity(ABC):
         """ Gets the byte data that applies to the current structure only """
         return self._data
 
+    @property
+    def live_data(self):
+        data_start = self.offset + (self.ent_size * self.ent_idx)
+        data_end = data_start + self.ent_size
+        return ' '.join([f"{s:02x}" for s in self.data[data_start:data_end]])
+
+    @property
+    def live_data(self):
+        data_start = self.offset + (self.ent_size * self.ent_idx)
+        data_end = data_start + self.ent_size
+        return self._full_data[data_start:data_end]
+
     def __init__(self, data, ent_idx, offset, ent_size, struct):
         """ Instantiate a new StructEntity with the relevant properties set.
 

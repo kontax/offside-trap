@@ -210,6 +210,16 @@ class Section:
         """ Gets a section refereneced by sh_link if one is present """
         return self._linked_section
 
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def live_data(self):
+        start = self.header.sh_offset
+        end = self.header.sh_offset + self.header.sh_size
+        return self._full_data[start:end]
+
     def __init__(self, data, section_number, e_shoff, e_shentsize, header_names=None):
         """ Instantiates a new Section object
 
@@ -229,8 +239,10 @@ class Section:
         if header_names is not None:
             self.section_name = parse_string_data(header_names.decode('utf-8'), self.header.sh_name)
 
-        # Extract raw data
-        self.data = data[self.header.sh_offset:self.header.sh_offset + self.header.sh_size]
+        # Set the current data value
+        start = self.header.sh_offset
+        end = self.header.sh_offset + self.header.sh_size
+        self._data = self._full_data[start:end]
 
     def load_symbols(self, symbols):
         """
