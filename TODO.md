@@ -40,3 +40,4 @@
     use a dirty bit to check if the data has changed, or look into working over a stream rather than bytearray.
     2. Check which properties are affected when changing a related property, and try have the change occur automatically
     3. ~~Extract the get/set_value methods and various properties into a base class~~
+    4. Move any data modification to helper file (makes implementing BytesIO easier if necessary)
