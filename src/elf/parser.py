@@ -1,9 +1,9 @@
-from struct import unpack, pack
+from struct import pack
 
 import r2pipe
 
+from elf.data import StructEntity
 from elf.enums import *
-from elf.helpers import repack
 from elf.section import Section, SectionFactory, SymbolTableSection
 from elf.segment import Segment, SegmentFactory
 
@@ -12,23 +12,84 @@ ELF Specification: http://ftp.openwatcom.org/devel/docs/elf-64-gen.pdf
 """
 
 
-class ELFIdent:
+class ELFIdent(StructEntity):
     """ e_ident containing identification details of the ELF file """
 
-    def __init__(self, header):
-        self.data = header
-        self.el_mag = header[0:4]
+    @property
+    def el_mag(self):
+        """ Gets or sets the ELF file magic string """
+        return self._get_value(0)
+
+    @el_mag.setter
+    def el_mag(self, value):
+        self._set_value(0, value)
+
+    @property
+    def el_class(self):
+        """ Gets or sets the file class """
+        return ELFClass(self._get_value(1))
+
+    @el_class.setter
+    def el_class(self, value):
+        self._set_value(1, value.value)
+
+    @property
+    def el_data(self):
+        """ Gets or sets the data encoding type """
+        return ELFData(self._get_value(2))
+
+    @el_data.setter
+    def el_data(self, value):
+        self._set_value(2, value.value)
+
+    @property
+    def el_version(self):
+        """ Gets or sets the ELF file version """
+        return self._get_value(3)
+
+    @el_version.setter
+    def el_version(self, value):
+        self._set_value(3, value)
+
+    @property
+    def el_osabi(self):
+        """ Gets or sets the OS/ABI type """
+        return ELFOSABI(self._get_value(4))
+
+    @el_osabi.setter
+    def el_osabi(self, value):
+        self._set_value(4, value.value)
+
+    @property
+    def el_abiversion(self):
+        """ Gets or sets the ABI version """
+        return self._get_value(5)
+
+    @el_abiversion.setter
+    def el_abiversion(self, value):
+        self._set_value(5, value)
+
+    @property
+    def el_pad(self):
+        """ Gets the padding value """
+        return self._get_value(6)
+
+    @property
+    def el_nident(self):
+        """ Gets or sets the size of the e_ident struct """
+        return self._get_value(7)
+
+    @el_nident.setter
+    def el_nident(self, value):
+        self._set_value(7, value)
+
+    def __init__(self, data):
+        hdr_struct = "4sbbbbb6sb"
+        super().__init__(data, 0, 0, 16, hdr_struct)
         assert (self.el_mag == b"\x7fELF")
-        self.el_class = ELFClass(header[4])
-        self.el_data = ELFData(header[5])
-        self.el_version = header[6]
-        self.el_osabi = ELFOSABI(header[7])
-        self.el_abiversion = header[8]
-        self.el_pad = header[9:15]
-        self.el_nident = header[15]
 
 
-class ELF:
+class ELFHeader(StructEntity):
     """ File Header
     unsigned char   e_ident[16];    /* ELF identification */
     Elf64_Half      e_type;         /* Object file type */
@@ -47,76 +108,128 @@ class ELF:
     """
 
     @property
-    def header(self):
-        """ Gets the tuple containing the values within the header of the entity """
-        return (
-            self.e_ident.data,
-            self.e_type.value,
-            self.e_machine.value,
-            self.e_version,
-            self._e_entry,
-            self._e_phoff,
-            self._e_shoff,
-            self.e_flags,
-            self.e_ehsize,
-            self.e_phentsize,
-            self._e_phnum,
-            self.e_shentsize,
-            self._e_shnum,
-            self.e_shstrndx
-        )
+    def elf_file(self):
+        """ Gets a reference to the elf file object """
+        return self._elf_file
+
+    @property
+    def e_ident(self):
+        """ Gets values from the e_ident struct """
+        return self._e_ident
+
+    @property
+    def e_type(self):
+        """ Gets or sets the object file type of the binary """
+        return ProgramType(self._get_value(1))
+
+    @e_type.setter
+    def e_type(self, value):
+        self._set_value(1, value.value)
+
+    @property
+    def e_machine(self):
+        """ Gets or sets the processor the binary runs on """
+        return ELFMachine(self._get_value(2))
+
+    @e_machine.setter
+    def e_machine(self, value):
+        self._set_value(2, value.value)
+
+    @property
+    def e_version(self):
+        """ Gets or sets the ABI version """
+        return self._get_value(3)
+
+    @e_version.setter
+    def e_version(self, value):
+        self._set_value(3, value)
 
     @property
     def e_entry(self):
         """ Gets or sets the entry point of the program """
-        return self._e_entry
+        return self._get_value(4)
 
     @e_entry.setter
     def e_entry(self, value):
-        self._e_entry = value
-        self._repack_header()
+        self._set_value(4, value)
 
     @property
     def e_phoff(self):
         """ Gets or sets the program header offset """
-        return self._e_phoff
+        return self._get_value(5)
 
     @e_phoff.setter
     def e_phoff(self, value):
-        self._e_phoff = value
-        for seg in self.segments:
-            seg.e_phoff = value
-        self._repack_header()
+        for seg in self.elf_file.segments:
+            seg.header.e_phoff = value
+        self._set_value(5, value)
 
     @property
     def e_shoff(self):
         """ Gets or sets the section header offset """
-        return self._e_shoff
+        return self._get_value(6)
 
     @e_shoff.setter
     def e_shoff(self, value):
-        self._e_shoff = value
-        self._repack_header()
+        for sec in self.elf_file.sections:
+            sec.header.e_shoff = value
+        self._set_value(6, value)
+
+    @property
+    def e_flags(self):
+        """ Gets processory-specific flags """
+        return self._get_value(7)
+
+    @property
+    def e_ehsize(self):
+        """ Gets the size of the ELF header in bytes """
+        return self._get_value(8)
+
+    @property
+    def e_phentsize(self):
+        """ Gets the size of each entry in the program header table """
+        return self._get_value(9)
 
     @property
     def e_phnum(self):
-        """ Gets or sets the number of program headers """
-        return self._e_phnum
+        """ Gets or sets the number of entries in the program header """
+        return self._get_value(10)
 
     @e_phnum.setter
     def e_phnum(self, value):
-        self._e_phnum = value
-        self._repack_header()
+        self._set_value(10, value)
+
+    @property
+    def e_shentsize(self):
+        """ Gets the size of each entry in the section header table """
+        return self._get_value(11)
 
     @property
     def e_shnum(self):
-        """ Gets or sets the number of section headers """
-        return self._e_shnum
+        """ Gets or sets the number of entries in the section header """
+        return self._get_value(12)
 
     @e_shnum.setter
     def e_shnum(self, value):
-        self._e_shnum = value
-        self._repack_header()
+        self._set_value(12, value)
+
+    @property
+    def e_shstrndx(self):
+        """ Gets or sets the index of the section name string table """
+        return self._get_value(13)
+
+    @e_shstrndx.setter
+    def e_shstrndx(self, value):
+        self._set_value(13, value)
+
+    def __init__(self, data, elf_file):
+        self._elf_file = elf_file
+        hdr_struct = "16sHHIQQQIHHHHHH"
+        super().__init__(data, 0, 0, 64, hdr_struct)
+        self._e_ident = ELFIdent(data)
+
+
+class ELF:
 
     @property
     def virtual_base(self):
@@ -133,42 +246,26 @@ class ELF:
         self.r2 = r2pipe.open(file_path)
         self.data = bytearray(data)
         self._full_data = self.data
-        self.hdr_struct = "16sHHIQQQIHHHHHH"
-        self.hdr_size = 64  # TODO: This is contained in the header as e_ehsize
+        self.header = ELFHeader(self.data, self)
         self.segments = []
         self.sections = []
         self.symbols = []
-        (
-            self.e_ident,
-            self.e_type,
-            self.e_machine,
-            self.e_version,
-            self._e_entry,
-            self._e_phoff,
-            self._e_shoff,
-            self.e_flags,
-            self.e_ehsize,
-            self.e_phentsize,
-            self._e_phnum,
-            self.e_shentsize,
-            self._e_shnum,
-            self.e_shstrndx
-        ) = self._parse_header(self.data, self.hdr_size, self.hdr_struct)
+        hdr = self.header
 
         # Pull the data containing the segment names initially
-        shstrtab_data = Section(self.data, self.e_shstrndx, self.e_shoff, self.e_shentsize).data
+        shstrtab_data = Section(self.data, hdr.e_shstrndx, hdr.e_shoff, hdr.e_shentsize).data
 
         # Extract the Segments
-        for i in range(self.e_phnum):
-            self.segments.append(SegmentFactory.create_segment(self.data, i, self.e_phoff, self.e_phentsize))
+        for i in range(hdr.e_phnum):
+            self.segments.append(SegmentFactory.create_segment(self.data, i, hdr.e_phoff, hdr.e_phentsize))
 
         # Extract the Sections
-        for i in range(self.e_shnum):
-            section = SectionFactory.create_section(self.data, i, self.e_shoff, self.e_shentsize, shstrtab_data)
+        for i in range(hdr.e_shnum):
+            section = SectionFactory.create_section(self.data, i, hdr.e_shoff, hdr.e_shentsize, shstrtab_data)
             self.sections.append(section)
 
         for symtab in [s for s in self.sections if type(s) is SymbolTableSection]:
-            strtab = self.sections[symtab.sh_link]
+            strtab = self.sections[symtab.header.sh_link]
             symtab.populate_symbol_names(strtab)
             self.symbols.extend(symtab.symbol_table)
 
@@ -184,7 +281,7 @@ class ELF:
             s.load_symbols(self.symbols)
             s.set_linked_section(self.sections)
 
-        self._virtual_base = min(x.p_vaddr for x in self.segments if x.p_type == ProgramType.PT_LOAD)
+        self._virtual_base = min(x.header.p_vaddr for x in self.segments if x.header.p_type == ProgramType.PT_LOAD)
         self._set_headers()
 
     def list_functions(self):
@@ -200,9 +297,9 @@ class ELF:
         text = self.get_section('.text')
 
         if len(self.symbols) > 0:
-            func_symbols = [Function(fn.symbol_name, fn.st_value, fn.st_size)
+            func_symbols = [Function(fn.symbol_name, fn.header.st_value, fn.header.st_size)
                             for fn in text.symbols
-                            if fn.st_info.st_type == SymbolType.STT_FUNC]  # All functions
+                            if fn.header.st_info.st_type == SymbolType.STT_FUNC]  # All functions
             return func_symbols
 
         else:
@@ -250,16 +347,17 @@ class ELF:
         """
 
         self._shift_interp()
+        hdr = self.header
 
         # Create a new segment
-        new_segment = self._create_new_segment(size + self.phdr.p_filesz)
+        new_segment = self._create_new_segment(size + self.phdr.header.p_filesz)
         packed = pack(new_segment.hdr_struct, *new_segment.header)
         self.segments.append(new_segment)
 
         # Add header entry to end of header section
-        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
-        self._full_data[offset:offset + self.e_phentsize] = packed
-        self.e_phnum += 1
+        offset = hdr.e_phoff + (hdr.e_phentsize * hdr.e_phnum)
+        self._full_data[offset:offset + hdr.e_phentsize] = packed
+        hdr.e_phnum += 1
 
         return new_segment
 
@@ -268,44 +366,47 @@ class ELF:
         Shifts the INTERP section/segment/symbol in order to make room for a new header section. This overwrites
         any data after this section, which is hopefully unused.
         """
-        interp = [s for s in self.segments if s.p_type == ProgramType.PT_INTERP]
+        hdr = self.header
+        interp = [s for s in self.segments if s.header.p_type == ProgramType.PT_INTERP]
         if len(interp) == 0:
             return
 
         # Get the interp
-        interp_seg = [s for s in self.segments if s.p_type == ProgramType.PT_INTERP][0]
-        interp_sym = [s for s in self.symbols if s.st_value == interp_seg.p_vaddr][0]
+        interp_seg = [s for s in self.segments if s.header.p_type == ProgramType.PT_INTERP][0]
+        interp_sym = [s for s in self.symbols if s.header.st_value == interp_seg.header.p_vaddr][0]
 
-        interp_seg.p_offset += self.e_phentsize
-        interp_seg.p_vaddr += self.e_phentsize
-        interp_seg.p_paddr += self.e_phentsize
+        interp_seg.header.p_offset += hdr.e_phentsize
+        interp_seg.header.p_vaddr += hdr.e_phentsize
+        interp_seg.header.p_paddr += hdr.e_phentsize
 
         interp_sec = self.get_section('.interp')
-        interp_sec.sh_offset += self.e_phentsize
-        interp_sec.sh_addr += self.e_phentsize
+        interp_sec.header.sh_offset += hdr.e_phentsize
+        interp_sec.header.sh_addr += hdr.e_phentsize
 
-        interp_sym.st_value += self.e_phentsize
+        interp_sym.header.st_value += hdr.e_phentsize
 
         # Move the interp data over the notes section
-        start = interp_seg.p_offset
-        end = interp_seg.p_offset + interp_seg.p_filesz
+        start = interp_seg.header.p_offset
+        end = interp_seg.header.p_offset + interp_seg.header.p_filesz
         assert (end - start == len(interp_seg.data))
         self.data[start:end] = interp_seg.data
 
     def append_loadable_segment_2(self, size):
 
+        hdr = self.header
+
         # Get the segment loading the program header
         phdr_segment = [s for s in self.segments
-                        if s.p_type == ProgramType.PT_LOAD
-                        and s.p_offset <= self.phdr.p_offset
-                        and s.p_offset + s.p_filesz >= self.phdr.p_offset + self.phdr.p_filesz][0]
+                        if s.header.p_type == ProgramType.PT_LOAD
+                        and s.header.p_offset <= self.phdr.header.p_offset
+                        and s.header.p_offset + s.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
 
         # Increase the size of the segment to account for the new segment being added
-        phdr_segment.p_filesz += self.e_phentsize
-        phdr_segment.p_memsz += self.e_phentsize
+        phdr_segment.header.p_filesz += hdr.e_phentsize
+        phdr_segment.header.p_memsz += hdr.e_phentsize
 
         # Shift any segments after the program header over by the size of an entry
-        marker = self.phdr.p_offset + self.phdr.p_filesz
+        marker = self.phdr.header.p_offset + self.phdr.header.p_filesz
         self._shift_data(marker)
         self._shift_segments(marker)
         self._shift_sections(marker)
@@ -316,82 +417,85 @@ class ELF:
         self.segments.append(new_segment)
 
         # Add header to end of header section
-        offset = self.e_phoff + (self.e_phentsize * self.e_phnum)
-        self._full_data[offset:offset + self.e_phentsize] = packed
-        self.e_phnum += 1
+        offset = hdr.e_phoff + (hdr.e_phentsize * hdr.e_phnum)
+        self._full_data[offset:offset + hdr.e_phentsize] = packed
+        hdr.e_phnum += 1
 
         return new_segment
 
     def _shift_data(self, marker):
+        hdr = self.header
         init_marker = marker
-        next_segment = [s for s in self.segments if init_marker <= s.p_offset <= init_marker + self.e_phentsize][0]
+        next_segment = [s for s in self.segments if init_marker <= s.header.p_offset <= init_marker + hdr.e_phentsize][0]
         moved_segments = []
-        p_offset = next_segment.p_offset
+        p_offset = next_segment.header.p_offset
         while next_segment is not None:
             moved_segments.append(next_segment)
-            marker = next_segment.p_offset + next_segment.p_filesz
-            p_offset += self.e_phentsize
+            marker = next_segment.header.p_offset + next_segment.header.p_filesz
+            p_offset += hdr.e_phentsize
             try:
                 next_segment = [s for s in self.segments
-                                if marker <= s.p_offset <= marker + self.e_phentsize
+                                if marker <= s.header.p_offset <= marker + hdr.e_phentsize
                                 and s not in moved_segments][0]
             except IndexError:
                 next_segment = None
 
         moved_sections = []
-        next_section = [s for s in self.sections if init_marker <= s.sh_offset <= init_marker + self.e_phentsize][0]
-        sh_offset = next_section.sh_offset
+        next_section = [s for s in self.sections if init_marker <= s.header.sh_offset <= init_marker + hdr.e_phentsize][0]
+        sh_offset = next_section.header.sh_offset
         while next_section is not None:
             moved_sections.append(next_section)
-            marker = next_section.sh_offset + next_section.sh_size
-            sh_offset += self.e_phentsize
+            marker = next_section.header.sh_offset + next_section.header.sh_size
+            sh_offset += hdr.e_phentsize
             try:
                 next_section = [s for s in self.sections
-                                if marker <= s.sh_offset <= marker + self.e_phentsize
+                                if marker <= s.header.sh_offset <= marker + hdr.e_phentsize
                                 and s not in moved_sections][0]
             except IndexError:
                 next_section = None
 
         max_end = init_marker
         for segment in moved_segments:
-            seg_end = segment.p_offset + segment.p_filesz
+            seg_end = segment.header.p_offset + segment.header.p_filesz
             max_end = seg_end if max_end < seg_end else max_end
 
         for section in moved_sections:
-            sec_end = section.sh_offset + section.sh_size
+            sec_end = section.header.sh_offset + section.header.sh_size
             max_end = sec_end if max_end < sec_end else max_end
 
-        self.data[init_marker + self.e_phentsize:max_end + self.e_phentsize] = self.data[init_marker:max_end]
+        self.data[init_marker + hdr.e_phentsize:max_end + hdr.e_phentsize] = self.data[init_marker:max_end]
 
     def _shift_segments(self, marker):
-        next_segment = [s for s in self.segments if marker <= s.p_offset <= marker + self.e_phentsize][0]
+        hdr = self.header
+        next_segment = [s for s in self.segments if marker <= s.header.p_offset <= marker + hdr.e_phentsize][0]
         moved_segments = []
         while next_segment is not None:
             moved_segments.append(next_segment)
-            marker = next_segment.p_offset + next_segment.p_filesz
-            next_segment.p_offset += self.e_phentsize
-            next_segment.p_vaddr += self.e_phentsize
+            marker = next_segment.header.p_offset + next_segment.header.p_filesz
+            next_segment.header.p_offset += hdr.e_phentsize
+            next_segment.header.p_vaddr += hdr.e_phentsize
             try:
                 next_segment = [s for s in self.segments
-                                if marker <= s.p_offset <= marker + self.e_phentsize
+                                if marker <= s.header.p_offset <= marker + hdr.e_phentsize
                                 and s not in moved_segments][0]
             except IndexError:
                 next_segment = None
 
-        # for segment in (sorted(moved_segments, key=lambda s: s.p_offset, reverse=True)):
-        #     self.data[segment.p_offset:segment.p_offset + segment.p_filesz] = segment.data
+        # for segment in (sorted(moved_segments, key=lambda s: s.header.p_offset, reverse=True)):
+        #     self.data[segment.header.p_offset:segment.header.p_offset + segment.header.p_filesz] = segment.data
 
     def _shift_sections(self, marker):
-        next_section = [s for s in self.sections if marker <= s.sh_offset <= marker + self.e_phentsize][0]
+        hdr = self.header
+        next_section = [s for s in self.sections if marker <= s.header.sh_offset <= marker + hdr.e_phentsize][0]
         moved_sections = []
         while next_section is not None:
             moved_sections.append(next_section)
-            marker = next_section.sh_offset + next_section.sh_size
-            next_section.sh_offset += self.e_phentsize
-            next_section.sh_addr += self.e_phentsize
+            marker = next_section.header.sh_offset + next_section.header.sh_size
+            next_section.header.sh_offset += hdr.e_phentsize
+            next_section.header.sh_addr += hdr.e_phentsize
             try:
                 next_section = [s for s in self.sections
-                                if marker <= s.sh_offset <= marker + self.e_phentsize
+                                if marker <= s.header.sh_offset <= marker + hdr.e_phentsize
                                 and s not in moved_sections][0]
             except IndexError:
                 next_section = None
@@ -406,7 +510,8 @@ class ELF:
         :return: A new Segment object with the data/header values populated
         """
 
-        last_segment = sorted(self.segments, key=lambda x: x.p_offset + x.p_filesz)[-1]
+        hdr = self.header
+        last_segment = sorted(self.segments, key=lambda x: x.header.p_offset + x.header.p_filesz)[-1]
         end_addr = len(self.data)
 
         # Segment header values - offset at the specific alignment
@@ -418,8 +523,8 @@ class ELF:
         # Make sure the segment is located at the correct alignment
         bitmask = addr_space ^ abs((1 - p_align))
         p_offset = (end_addr + p_align) & bitmask
-        p_vaddr = (last_segment.p_vaddr + last_segment.p_memsz + p_align) & bitmask
-        p_paddr = (last_segment.p_paddr + last_segment.p_memsz + p_align) & bitmask
+        p_vaddr = (last_segment.header.p_vaddr + last_segment.header.p_memsz + p_align) & bitmask
+        p_paddr = (last_segment.header.p_paddr + last_segment.header.p_memsz + p_align) & bitmask
 
         # Add padding to the alignment
         pad_len = p_offset - end_addr
@@ -438,35 +543,7 @@ class ELF:
             size,  # p_memsz
             p_align
         )
-        return Segment(self._full_data, self.e_phnum, self.e_phoff, self.e_phentsize, header)
-
-    @staticmethod
-    def _parse_header(data, header_size, hdr_struct):
-        """
-        Parses the bytearray data to extract the header values.
-
-        :param data: The bytearray containing the data of the binary.
-        :param header_size: The size of the ELF header in bytes.
-        :param hdr_struct: The code used to parse the header within struct.pack()
-        :return: A set of ELF header values for the current binary.
-        """
-        header = unpack(hdr_struct, data[:header_size])
-        return (
-            ELFIdent(header[0]),  # e_ident
-            ELFFileType(header[1]),  # e_type
-            ELFMachine(header[2]),  # e_machine
-            header[3],  # e_version
-            header[4],  # e_entry
-            header[5],  # e_phoff
-            header[6],  # e_shoff
-            header[7],  # e_flags
-            header[8],  # e_ehsize
-            header[9],  # e_phentsize
-            header[10],  # e_phnum
-            header[11],  # e_shentsize
-            header[12],  # e_shnum
-            header[13],  # e_shstrndx
-        )
+        return Segment(self._full_data, hdr.e_phnum, hdr.e_phoff, hdr.e_phentsize, header)
 
     @staticmethod
     def _extract_header_names(data):
@@ -479,26 +556,23 @@ class ELF:
 
         # Program Header
         if self.linking_method == ELFLinkingMethod.DYNAMIC:
-            self.phdr = [x for x in self.segments if x.p_type == ProgramType.PT_PHDR][0]
+            self.phdr = [x for x in self.segments if x.header.p_type == ProgramType.PT_PHDR][0]
         else:
             # Create a new "ghost" segment containing the correct data, without adding it to the segment list
+            hdr = self.header
             header = (
                 ProgramType.PT_PHDR,  # p_type
                 4,  # p_flags
-                self.e_phoff,  # p_offset
-                self.e_phoff,  # p_vaddr
-                self.e_phoff,  # p_paddr
-                self.e_phentsize * self.e_phnum,  # p_filesz
-                self.e_phentsize * self.e_phnum,  # p_memsz
+                hdr.e_phoff,  # p_offset
+                hdr.e_phoff,  # p_vaddr
+                hdr.e_phoff,  # p_paddr
+                hdr.e_phentsize * hdr.e_phnum,  # p_filesz
+                hdr.e_phentsize * hdr.e_phnum,  # p_memsz
                 8  # p_align
             )
-            self.phdr = Segment(self._full_data, 0, self.e_phoff, self.e_phentsize, header)
+            self.phdr = Segment(self._full_data, 0, hdr.e_phoff, hdr.e_phentsize, header)
 
         # TODO: Section Header
-
-    def _repack_header(self):
-        """ Re-packs the header once edits have been made, so as to propogate any changes within the binary data """
-        repack(self._full_data, 0, self.e_ehsize, self.header, self.hdr_struct)
 
 
 class Function:
@@ -524,7 +598,7 @@ def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.hash')
-    sym = elf.sections[ht.sh_link].symbol_table
+    sym = elf.sections[ht.header.sh_link].symbol_table
     for st in sym:
         found = ht.find(st.symbol_name)
         print(f"{st.symbol_name}: {found}")
@@ -535,7 +609,7 @@ def gnu_hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.gnu.hash')
-    sym = elf.sections[ht.sh_link].symbol_table
+    sym = elf.sections[ht.header.sh_link].symbol_table
     for st in sym[ht.hash_table.symoffset:]:
         found = ht.find(st.symbol_name)
         print(f"{st.symbol_name}: {found}")
@@ -546,8 +620,41 @@ def pack_file():
     filename = '/home/james/dev/offside-trap/test/source/test'
     packed_filename = f"{filename}.packed"
     elf = ELF(filename)
-    #elf.append_loadable_segment_2(400)
-    elf.segments[6].dynamic_table[7].d_un = 1024
+    elf.header.e_phnum = 9
+    elf.header.e_ident.el_osabi = ELFOSABI.ELFOSABI_OPENVMS
+
+    # Regular segment
+    elf.segments[1].header.p_offset = 0x3a8
+    elf.segments[1].header.p_type = 7
+
+    # Dynamic segment
+    elf.segments[6].dynamic_table[0].d_tag = DynamicTag.DT_CHECKSUM
+
+    # Regular section
+    elf.sections[13].header.sh_offset = 0x8000
+    elf.sections[13].header.sh_type = SectionType.SHT_GNU_INCREMENTAL_INPUTS
+
+    # Dynamic section
+    elf.sections[20].dynamic_table[3].d_un = 10000
+
+    # Symbol table section
+    elf.sections[5].symbol_table[2].header.st_name = 4
+    elf.sections[5].symbol_table[2].header.st_info.st_bind = SymbolBinding.STB_LOPROC
+
+    # Hash section
+
+    # Gnu hash section
+    elf.sections[4].hash_table.bucket[0] = 10
+
+    # Relocation section
+    elf.sections[9].relocation_table[0].r_offset = 0x1000
+    elf.sections[9].relocation_table[0].r_addend = 0x1000
+    elf.sections[9].relocation_table[3].r_info.r_type = RelocationType.R_X86_64_GOTPLT64
+
+    # String table section
+
+    elf.append_loadable_segment_3(400)
+    #elf.segments[6].dynamic_table[7].d_un = 1024
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)
 

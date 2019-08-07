@@ -19,15 +19,31 @@ def parse_string_data(data, offset):
     return ''.join(string_array)
 
 
-def parse_header(data, entity_number, entsize, h_offset, hdr_struct):
-    # entsize is the header size for the entity
-    inner_offset = entity_number * entsize
+def parse_struct(data, ent_num, h_offset, ent_size, struct_fmt):
+    """ Parses an ELF structure to return the values based on the struct format string.
+
+    :param data: Full bytearray of the binary
+    :param ent_num: Entity number to count from the offset, ie. the n'th entry of the table
+    :param ent_size: Size of an individual entry in the structure in bytes
+    :param h_offset: Offset in bytes from the start of the binary that the start of the structure is located
+    :param struct_fmt: The struct format string
+    :return: A tuple containing the formatted data
+    """
+    # entsize is the size in bytes of the entity
+    inner_offset = ent_num * ent_size
     start_offset = h_offset + inner_offset
-    end_offset = start_offset + entsize
+    end_offset = start_offset + ent_size
 
     # Extract the header data from the full data
     extract_data = data[start_offset:end_offset]
-    return unpack(hdr_struct, extract_data)
+    return unpack(struct_fmt, extract_data)
+
+
+def set_struct(data, ent_num, ent_size, ent_offset, struct_fmt, idx, value):
+    bytearray_data = list(parse_struct(data, ent_num, ent_offset, ent_size, struct_fmt))
+    bytearray_data[idx] = value
+    offset = ent_offset + (ent_num * ent_size)
+    repack(data, offset, ent_size, bytearray_data, struct_fmt)
 
 
 def repack(full_data, offset, size, data_segment, struct):

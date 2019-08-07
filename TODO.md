@@ -15,7 +15,7 @@
 7. Re-encrypt functions on calling another function
 8. Reduce size (or need completely) of table
 9. Encrypt bytes before adding them to the table
-10. Remove the necessity of making the text section writable (entry doesn't work on PIE)
+10. ~~Remove the necessity of making the text section writable (entry doesn't work on PIE)~~
 11. ~~Find some malware~~
     1. ~~http://contagiodump.blogspot.com/~~
     2. ~~https://virusshare.com/~~
@@ -34,5 +34,9 @@
     1. ~~Modify hash lookups to only take a symbol name as the parameter~~
 16. Modify setters for section/segment subclasses and properties to update whenever changes are made, eg. if the symbol
     for a relocation changes, then the offsets, indexes and info may need to be modified.
-17. Rather than having static values for all the properties, look into having an overlay on top of the raw data, so
-    that whenever any values are modified or viewed they're on the top of "live" data.
+17. ~~Rather than having static values for all the properties, look into having an overlay on top of the raw data, so
+    that whenever any values are modified or viewed they're on the top of "live" data.~~
+    1. Find a way to optimize this - it runs quite slowly when using a bytearray. A couple options would be to either
+    use a dirty bit to check if the data has changed, or look into working over a stream rather than bytearray.
+    2. Check which properties are affected when changing a related property, and try have the change occur automatically
+    3. ~~Extract the get/set_value methods and various properties into a base class~~
