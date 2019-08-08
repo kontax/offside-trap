@@ -1,7 +1,7 @@
 from abc import ABC
 from struct import unpack
 
-from elf.enums import DynamicTag, GnuNoteType, RelocationType
+from elf.enums import *
 from elf.helpers import parse_struct, set_struct
 
 
@@ -131,22 +131,7 @@ class DynamicTableEntry(StructEntity):
     def shift(self, start_offset, end_offset, shift_by):
 
         # Only the following list of tags contain pointers in their d_un property
-        d_ptr_list = [
-            DynamicTag.DT_PLTGOT,
-            DynamicTag.DT_HASH,
-            DynamicTag.DT_STRTAB,
-            DynamicTag.DT_SYMTAB,
-            DynamicTag.DT_RELA,
-            DynamicTag.DT_INIT,
-            DynamicTag.DT_FINI,
-            DynamicTag.DT_REL,
-            DynamicTag.DT_DEBUG,
-            DynamicTag.DT_JMPREL,
-            DynamicTag.DT_INIT_ARRAY,
-            DynamicTag.DT_FINI_ARRAY,
-            DynamicTag.DT_PREINIT_ARRAY,
-        ]
-
+        d_ptr_list = [x for x, y in DYNAMIC_TAG_UNION.items() if y == "d_ptr"]
         if self.d_tag not in d_ptr_list:
             return
 

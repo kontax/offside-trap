@@ -320,7 +320,9 @@ class ELF:
         :return: A Section object with the name specified
         """
         sections = [x for x in self.sections if x.section_name == name]
-        assert (len(sections) == 1)
+        assert (len(sections) <= 1)
+        if len(sections) == 0:
+            return None
         return sections[0]
 
     def get_data_segment(self, start_addr, end_addr):
@@ -691,6 +693,7 @@ def gnu_hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.gnu.hash')
+    elf.shift_sections(400)
     sym = elf.sections[ht.header.sh_link].symbol_table
     for st in sym[ht.hash_table.symoffset:]:
         found = ht.find(st.symbol_name)
