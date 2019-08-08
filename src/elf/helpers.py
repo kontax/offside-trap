@@ -1,5 +1,7 @@
 from struct import unpack, pack
 
+from elf.enums import Overlap
+
 
 def is_string_hex(string):
     try:
@@ -57,3 +59,26 @@ def repack(full_data, offset, size, data_segment, struct):
     """
     end_offset = offset + size
     full_data[offset:end_offset] = pack(struct, *data_segment)
+
+
+def _check_range_overlaps(start_offset, end_offset, start_check, end_check):
+    """ Check to see how a range of bytes is affected by another range, either they overlap from
+    the left, right, or completely overlap.
+
+    :param start_offset: Start offset of the bytes to check against
+    :param end_offset: End offset of the bytes to check against
+    :param start_check: Start offset of the range to check - ie. the structure in question
+    :param end_check: End offset of the range to check - ie. the structure in question
+    :return: 'LEFT' if the range overlaps from the left, 'RIGHT' for the right, 'OVER' for over, 'INNER' for inner
+     and None for none.
+    """
+    if start_check < start_offset <= end_check:
+        return Overlap.LEFT
+    if start_check <= end_offset < end_check:
+        return Overlap.RIGHT
+    if start_check < start_offset and end_check > end_offset:
+        return Overlap.OVER
+    if start_check >= start_offset and end_check <= end_offset:
+        return Overlap.INNER
+
+    return None

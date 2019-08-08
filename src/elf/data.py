@@ -128,6 +128,32 @@ class DynamicTableEntry(StructEntity):
     def __str__(self):
         return f"{self.d_tag}"
 
+    def shift(self, start_offset, end_offset, shift_by):
+
+        # Only the following list of tags contain pointers in their d_un property
+        d_ptr_list = [
+            DynamicTag.DT_PLTGOT,
+            DynamicTag.DT_HASH,
+            DynamicTag.DT_STRTAB,
+            DynamicTag.DT_SYMTAB,
+            DynamicTag.DT_RELA,
+            DynamicTag.DT_INIT,
+            DynamicTag.DT_FINI,
+            DynamicTag.DT_REL,
+            DynamicTag.DT_DEBUG,
+            DynamicTag.DT_JMPREL,
+            DynamicTag.DT_INIT_ARRAY,
+            DynamicTag.DT_FINI_ARRAY,
+            DynamicTag.DT_PREINIT_ARRAY,
+        ]
+
+        if self.d_tag not in d_ptr_list:
+            return
+
+        if start_offset <= self.d_un <= end_offset:
+            self.d_un += shift_by
+            self._data = ' '.join([f"{s:02x}" for s in self.live_data])
+
 
 class Note(StructEntity):
     """ Note Entry
@@ -379,6 +405,12 @@ class RelTableEntry(StructEntity):
         super().__init__(data, ent_idx, offset, ent_size, struct)
         self._r_info = RelInfo(data, 0, offset + (ent_idx * ent_size) + 8)
         self.symbol = None
+
+    def shift(self, start_offset, end_offset, shift_by):
+        if self.r_info.r_type == RelocationType.R_X86_64_GLOB_DAT:
+            if start_offset <= self.r_offset <= end_offset:
+                self.r_offset += shift_by
+                self._data = ' '.join([f"{s:02x}" for s in self.live_data])
 
     def update_symbol(self, symtab):
         """ Updates the symbol the relocation object points to as a Symbol object from the relevant symtab

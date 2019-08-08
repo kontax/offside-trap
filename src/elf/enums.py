@@ -6,6 +6,14 @@
 from enum import Enum
 
 
+class Overlap(Enum):
+    """ How two byte ranges overlap each other """
+    LEFT = 1
+    RIGHT = 2
+    INNER = 3
+    OVER = 4
+
+
 class ELFDataType(Enum):
     """ The size in bytes of each data-type within the ELF structure """
     Elf64_Addr = 8  # Unsigned program address

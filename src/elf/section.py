@@ -1,6 +1,6 @@
 from elf.data import *
 from elf.enums import *
-from elf.helpers import parse_string_data, parse_struct
+from elf.helpers import parse_string_data, parse_struct, _check_range_overlaps
 from elf.symbol import parse_symbols_data
 
 
@@ -244,6 +244,33 @@ class Section:
         end = self.header.sh_offset + self.header.sh_size
         self._data = self._full_data[start:end]
 
+    def __str__(self):
+        return f"{self.section_name} @ {hex(self.header.sh_offset)}"
+
+    def shift(self, start_offset, end_offset, shift_by):
+        hdr = self.header
+        overlap = _check_range_overlaps(start_offset, end_offset, hdr.sh_offset, hdr.sh_offset + hdr.sh_size)
+        if overlap is None:
+            return
+
+        # Move the start only if it's after the start offset
+        if overlap == Overlap.RIGHT or overlap == Overlap.INNER:
+            hdr.sh_offset += shift_by
+            hdr.sh_addr += shift_by
+
+            # Ensure the data still matches, and update the data snapshot
+            assert (self.data == self.live_data)
+            self._data = self._full_data[hdr.sh_offset:hdr.sh_offset + hdr.sh_size]
+
+        # Otherwise increase the size
+        if overlap == Overlap.LEFT or overlap == Overlap.OVER:
+            hdr.sh_size += shift_by
+
+            # Ensure the start and end values match what they did previously, and update the snapshot
+            assert (self.data[:shift_by] == self.live_data[:shift_by])
+            assert (self.data[-shift_by:] == self.live_data[-shift_by:])
+            self._data = self._full_data[hdr.sh_offset:hdr.sh_offset + hdr.sh_size]
+
     def load_symbols(self, symbols):
         """
         Parses a list of symbols and adds them to the local collection if they are contained within
@@ -263,9 +290,6 @@ class Section:
         """
         self._linked_section = sections[self.header.sh_link] if self.header.sh_link > 0 else None
 
-    def __str__(self):
-        return f"{self.section_name} @ {hex(self.header.sh_offset)}"
-
 
 class DynamicSection(Section):
     """ The dynamic section contains references to a string table holding the list of symbols the binary loads
@@ -284,6 +308,12 @@ class DynamicSection(Section):
 
         self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.header.sh_offset)
 
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
+        self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.header.sh_offset)
+        for entry in self.dynamic_table:
+            entry.shift(start_offset, end_offset, shift_by)
+
 
 class NoteSection(Section):
     """ Contains special information that other programs will check for conformance, compatibility, etc. """
@@ -298,6 +328,10 @@ class NoteSection(Section):
         :param header_names: The list of names given to sections if available
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
+        self.notes = parse_notes_data(self._full_data, self.data, self.header.sh_offset)
+
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
         self.notes = parse_notes_data(self._full_data, self.data, self.header.sh_offset)
 
 
@@ -317,9 +351,19 @@ class SymbolTableSection(Section):
         self.symbol_table = parse_symbols_data(
             self._full_data, self.header.sh_offset, self.header.sh_size, self.header.sh_entsize, None)
 
-    def populate_symbol_names(self, strtab):
+    def populate_symbol_names(self):
         for symbol in self.symbol_table:
-            symbol.populate_names(strtab)
+            symbol.populate_names(self.linked_section)
+
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
+        self.symbol_table = parse_symbols_data(
+            self._full_data, self.header.sh_offset, self.header.sh_size, self.header.sh_entsize, None)
+
+        for entry in self.symbol_table:
+            entry.shift(start_offset, end_offset, shift_by)
+
+        self.populate_symbol_names()
 
 
 class StringTableSection(Section):
@@ -353,6 +397,10 @@ class HashSection(Section):
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = HashTable(data, self.header.sh_offset)
+
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
+        self.hash_table = HashTable(self._full_data, self.header.sh_offset)
 
     @staticmethod
     def hash(name):
@@ -406,6 +454,10 @@ class GnuHashSection(Section):
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = GnuHashTable(data, self.header.sh_offset, self.header.sh_size)
+
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
+        self.hash_table = GnuHashTable(self._full_data, self.header.sh_offset, self.header.sh_size)
 
     @staticmethod
     def hash(name):
@@ -504,6 +556,14 @@ class RelocationSection(Section):
         """
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self._relocation_table = self._get_rel_table()
+
+    def shift(self, start_offset, end_offset, shift_by):
+        super().shift(start_offset, end_offset, shift_by)
+        self._relocation_table = self._get_rel_table()
+
+        for entry in self._relocation_table:
+            entry.shift(start_offset, end_offset, shift_by)
+            entry.update_symbol(self.linked_section.symbol_table)
 
     def set_linked_section(self, sections):
         """ Sets the linked_section property from the sh_link header value

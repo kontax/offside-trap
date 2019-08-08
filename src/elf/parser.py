@@ -264,11 +264,6 @@ class ELF:
             section = SectionFactory.create_section(self.data, i, hdr.e_shoff, hdr.e_shentsize, shstrtab_data)
             self.sections.append(section)
 
-        for symtab in [s for s in self.sections if type(s) is SymbolTableSection]:
-            strtab = self.sections[symtab.header.sh_link]
-            symtab.populate_symbol_names(strtab)
-            self.symbols.extend(symtab.symbol_table)
-
         # Associate each section with the segment it's contained within
         for s in self.segments:
             s.load_sections(self.sections)
@@ -280,6 +275,10 @@ class ELF:
         for s in self.sections:
             s.load_symbols(self.symbols)
             s.set_linked_section(self.sections)
+
+        for symtab in [s for s in self.sections if type(s) is SymbolTableSection]:
+            symtab.populate_symbol_names()
+            self.symbols.extend(symtab.symbol_table)
 
         self._virtual_base = min(x.header.p_vaddr for x in self.segments if x.header.p_type == ProgramType.PT_LOAD)
         self._set_headers()
@@ -388,6 +387,92 @@ class ELF:
         assert (end - start == len(interp_seg.data))
         self.data[start:end] = interp_seg.data
 
+    def shift_sections(self, size):
+        hdr = self.header
+
+        # Get the segment loading the program header
+        phdr_segment = [s for s in self.segments
+                        if s.header.p_type == ProgramType.PT_LOAD
+                        and s.header.p_offset <= self.phdr.header.p_offset
+                        and s.header.p_offset + s.header.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
+        phdr_start = phdr_segment.header.p_offset
+        phdr_end = phdr_start + phdr_segment.header.p_filesz
+        next_segment_start = sorted([s for s in self.segments if s.header.p_offset >= phdr_end], key=lambda x: x.header.p_offset)[0].header.p_offset
+
+        # Create space for the new segment in the program header
+        idx = hdr.e_phoff + hdr.e_phentsize * hdr.e_phnum
+        self._full_data[idx:idx] = b'\0'*hdr.e_phentsize
+
+        # Create the new segment
+        new_segment = self._create_new_segment(size)
+        self.segments.append(new_segment)
+        hdr.e_phnum += 1  # TODO: This should possibly shift the PHDR size by e_phentsize (both segment and section)
+
+        # Delete e_phentsize bytes at the first available null sequence that's large enough
+        # Only search between the range within the phdr load segment, after the new phdr index data
+        try:
+            null_start = self._full_data.index(b'\0'*hdr.e_phentsize, idx+hdr.e_phentsize, next_segment_start+hdr.e_phentsize)
+        except ValueError as ex:
+            print(f"Cannot find a sequence of null bytes large enough to move into")
+            raise
+
+        del self._full_data[null_start:null_start+hdr.e_phentsize]
+
+        affected = [s for s in self.segments
+                    if s.header.p_offset + s.header.p_filesz >= idx
+                    and s.header.p_offset <= null_start]
+
+        for segment in self.segments:
+            if segment.header.p_type == ProgramType.PT_PHDR:
+                segment.shift(idx, null_start, hdr.e_phentsize, False)
+                continue
+            segment.shift(idx, null_start, hdr.e_phentsize)
+
+        affected = [s for s in self.sections
+                    if s.header.sh_offset + s.header.sh_size >= idx
+                    and s.header.sh_offset <= null_start]
+
+        for section in self.sections:
+            section.shift(idx, null_start, hdr.e_phentsize)
+
+        return
+
+        # Shift the offsets of affected segments
+        affected = [s for s in self.segments
+                    if s.header.p_offset + s.header.p_filesz >= idx
+                    and s.header.p_offset <= null_start]
+
+        for segment in affected:
+            # Move the start only if it's after the index
+            if segment.header.p_offset >= idx:
+                segment.header.p_offset += hdr.e_phentsize
+                segment.header.p_paddr += hdr.e_phentsize
+                segment.header.p_vaddr += hdr.e_phentsize
+            # Otherwise increase the size
+            else:
+                segment.header.p_filesz += hdr.e_phentsize
+                segment.header.p_memsz += hdr.e_phentsize
+
+            if segment.header.p_type != ProgramType.PT_PHDR:
+                assert(segment.data[:self.header.e_phentsize] == segment.live_data[:self.header.e_phentsize])
+                assert(segment.data[-self.header.e_phentsize:] == segment.live_data[-self.header.e_phentsize:])
+
+        # Shift the offsets of affected sections
+        affected = [s for s in self.sections
+                    if s.header.sh_offset + s.header.sh_size >= idx
+                    and s.header.sh_offset <= null_start]
+
+        for section in affected:
+            # Move the start only if it's after the index
+            if section.header.sh_offset >= idx:
+                section.header.sh_offset += hdr.e_phentsize
+                section.header.sh_addr += hdr.e_phentsize
+            # Otherwise increase the size
+            else:
+                section.header.sh_size += hdr.e_phentsize
+
+            assert(section.data == section.live_data)
+
     def append_loadable_segment_2(self, size):
 
         hdr = self.header
@@ -396,7 +481,7 @@ class ELF:
         phdr_segment = [s for s in self.segments
                         if s.header.p_type == ProgramType.PT_LOAD
                         and s.header.p_offset <= self.phdr.header.p_offset
-                        and s.header.p_offset + s.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
+                        and s.header.p_offset + s.header.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
 
         # Increase the size of the segment to account for the new segment being added
         phdr_segment.header.p_filesz += hdr.e_phentsize
@@ -659,7 +744,7 @@ def pack_file_2():
     filename = '/home/james/dev/offside-trap/test/source/test'
     packed_filename = f"{filename}.packed"
     elf = ELF(filename)
-    elf.append_loadable_segment_3(400)
+    elf.shift_sections(400)
 
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)

@@ -1,6 +1,6 @@
 from elf.data import StructEntity
 from elf.enums import *
-from elf.helpers import parse_struct, set_struct
+from elf.helpers import parse_struct, _check_range_overlaps
 from elf.section import create_dynamic_table, parse_notes_data
 
 
@@ -135,6 +135,9 @@ class Segment:
         # Extract raw data
         self.data = data[self.header.p_offset:self.header.p_offset + self.header.p_filesz]
 
+    def __str__(self):
+        return f"{self.header.p_type} @ {hex(self.header.p_offset)}"
+
     def load_sections(self, sections):
         """
         Parses a list of sections and adds them to the local collection if they are contained within
@@ -179,8 +182,33 @@ class Segment:
 
         return False
 
-    def __str__(self):
-        return f"{self.header.p_type} @ {hex(self.header.p_offset)}"
+    def shift(self, start_offset, end_offset, shift_by, validate=True):
+        hdr = self.header
+        overlap = _check_range_overlaps(start_offset, end_offset, hdr.p_offset, hdr.p_offset + hdr.p_filesz)
+        if overlap is None:
+            return
+
+        # Move the start only if it's after the start offset
+        if overlap == Overlap.RIGHT or overlap == Overlap.INNER:
+            hdr.p_offset += shift_by
+            hdr.p_paddr += shift_by
+            hdr.p_vaddr += shift_by
+
+            # Ensure the data still matches, and update the data snapshot
+            if validate:
+                assert(self.data == self.live_data)
+            self.data = self._full_data[hdr.p_offset:hdr.p_offset + hdr.p_filesz]
+
+        # Otherwise increase the size
+        if overlap == Overlap.LEFT or overlap == Overlap.OVER:
+            hdr.p_filesz += shift_by
+            hdr.p_memsz += shift_by
+
+            # Ensure the start and end values match what they did previously, and update the snapshot
+            if validate:
+                assert (self.data[:shift_by] == self.live_data[:shift_by])
+                assert (self.data[-shift_by:] == self.live_data[-shift_by:])
+            self.data = self._full_data[hdr.p_offset:hdr.p_offset + hdr.p_filesz]
 
     def _set_header_values(self, header):
         """ Sets all the current segments header values to the values in the specified header
