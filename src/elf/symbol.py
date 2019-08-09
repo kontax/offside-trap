@@ -119,7 +119,11 @@ class Symbol:
         if self.header.st_name > 0 and strtab is not None:
             self.symbol_name = parse_string_data(strtab.data.decode('utf-8'), self.header.st_name)
 
-    def shift(self, start_offset, end_offset, shift_by):
+    def shift(self, start_offset, end_offset, shift_by, virtual_base):
+
+        # Take into account non-pie binaries
+        start_offset += virtual_base
+        end_offset += virtual_base
 
         if start_offset <= self.header.st_value <= end_offset:
             self.header.st_value += shift_by

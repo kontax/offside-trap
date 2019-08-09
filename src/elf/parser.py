@@ -281,7 +281,6 @@ class ELF:
             self.symbols.extend(symtab.symbol_table)
 
         self._virtual_base = min(x.header.p_vaddr for x in self.segments if x.header.p_type == ProgramType.PT_LOAD)
-        self._set_headers()
 
     def list_functions(self):
         """
@@ -351,7 +350,7 @@ class ELF:
         hdr = self.header
 
         # Create a new segment
-        new_segment = self._create_new_segment(size + self.phdr.header.p_filesz)
+        new_segment = self._create_new_segment(size)
         self.segments.append(new_segment)
 
         # Add header entry to end of header section
@@ -392,17 +391,10 @@ class ELF:
     def shift_sections(self, size):
         hdr = self.header
 
-        # Get the segment loading the program header
-        phdr_segment = [s for s in self.segments
-                        if s.header.p_type == ProgramType.PT_LOAD
-                        and s.header.p_offset <= self.phdr.header.p_offset
-                        and s.header.p_offset + s.header.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
-        phdr_start = phdr_segment.header.p_offset
-        phdr_end = phdr_start + phdr_segment.header.p_filesz
-        next_segment_start = sorted([s for s in self.segments if s.header.p_offset >= phdr_end], key=lambda x: x.header.p_offset)[0].header.p_offset
-
-        # Create space for the new segment in the program header
+        # Create space for the new segment in the program header, and find the closest gap to fill
         idx = hdr.e_phoff + hdr.e_phentsize * hdr.e_phnum
+        gap_idx = self._get_gap_idx(idx+hdr.e_phentsize, hdr.e_phentsize)
+        gap_idx += hdr.e_phentsize  # The gap hasn't taken into account the shift just yet
         self._full_data[idx:idx] = b'\0'*hdr.e_phentsize
 
         # Create the new segment
@@ -411,178 +403,21 @@ class ELF:
         hdr.e_phnum += 1  # TODO: This should possibly shift the PHDR size by e_phentsize (both segment and section)
 
         # Delete e_phentsize bytes at the first available null sequence that's large enough
-        # Only search between the range within the phdr load segment, after the new phdr index data
-        try:
-            null_start = self._full_data.index(b'\0'*hdr.e_phentsize, idx+hdr.e_phentsize, next_segment_start+hdr.e_phentsize)
-        except ValueError as ex:
-            print(f"Cannot find a sequence of null bytes large enough to move into")
-            raise
+        del self._full_data[gap_idx:gap_idx+hdr.e_phentsize]
 
-        del self._full_data[null_start:null_start+hdr.e_phentsize]
-
-        affected = [s for s in self.segments
-                    if s.header.p_offset + s.header.p_filesz >= idx
-                    and s.header.p_offset <= null_start]
-
+        # Modify the offsets of all affected segments/sections, and the data within
         for segment in self.segments:
-            if segment.header.p_type == ProgramType.PT_PHDR:
-                segment.shift(idx, null_start, hdr.e_phentsize, False)
-                continue
-            segment.shift(idx, null_start, hdr.e_phentsize)
 
-        affected = [s for s in self.sections
-                    if s.header.sh_offset + s.header.sh_size >= idx
-                    and s.header.sh_offset <= null_start]
+            # The program header's data is expected to change, hence the false verification input
+            if segment.header.p_type == ProgramType.PT_PHDR:
+                segment.shift(idx, gap_idx, hdr.e_phentsize, False)
+                continue
+            segment.shift(idx, gap_idx, hdr.e_phentsize)
 
         for section in self.sections:
-            section.shift(idx, null_start, hdr.e_phentsize)
+            section.shift(idx, gap_idx, hdr.e_phentsize, self.virtual_base)
 
         return
-
-        # Shift the offsets of affected segments
-        affected = [s for s in self.segments
-                    if s.header.p_offset + s.header.p_filesz >= idx
-                    and s.header.p_offset <= null_start]
-
-        for segment in affected:
-            # Move the start only if it's after the index
-            if segment.header.p_offset >= idx:
-                segment.header.p_offset += hdr.e_phentsize
-                segment.header.p_paddr += hdr.e_phentsize
-                segment.header.p_vaddr += hdr.e_phentsize
-            # Otherwise increase the size
-            else:
-                segment.header.p_filesz += hdr.e_phentsize
-                segment.header.p_memsz += hdr.e_phentsize
-
-            if segment.header.p_type != ProgramType.PT_PHDR:
-                assert(segment.data[:self.header.e_phentsize] == segment.live_data[:self.header.e_phentsize])
-                assert(segment.data[-self.header.e_phentsize:] == segment.live_data[-self.header.e_phentsize:])
-
-        # Shift the offsets of affected sections
-        affected = [s for s in self.sections
-                    if s.header.sh_offset + s.header.sh_size >= idx
-                    and s.header.sh_offset <= null_start]
-
-        for section in affected:
-            # Move the start only if it's after the index
-            if section.header.sh_offset >= idx:
-                section.header.sh_offset += hdr.e_phentsize
-                section.header.sh_addr += hdr.e_phentsize
-            # Otherwise increase the size
-            else:
-                section.header.sh_size += hdr.e_phentsize
-
-            assert(section.data == section.live_data)
-
-    def append_loadable_segment_2(self, size):
-
-        hdr = self.header
-
-        # Get the segment loading the program header
-        phdr_segment = [s for s in self.segments
-                        if s.header.p_type == ProgramType.PT_LOAD
-                        and s.header.p_offset <= self.phdr.header.p_offset
-                        and s.header.p_offset + s.header.p_filesz >= self.phdr.header.p_offset + self.phdr.header.p_filesz][0]
-
-        # Increase the size of the segment to account for the new segment being added
-        phdr_segment.header.p_filesz += hdr.e_phentsize
-        phdr_segment.header.p_memsz += hdr.e_phentsize
-
-        # Shift any segments after the program header over by the size of an entry
-        marker = self.phdr.header.p_offset + self.phdr.header.p_filesz
-        self._shift_data(marker)
-        self._shift_segments(marker)
-        self._shift_sections(marker)
-
-        # Create new segment
-        new_segment = self._create_new_segment(size)
-        packed = pack(new_segment.hdr_struct, *new_segment.header)
-        self.segments.append(new_segment)
-
-        # Add header to end of header section
-        offset = hdr.e_phoff + (hdr.e_phentsize * hdr.e_phnum)
-        self._full_data[offset:offset + hdr.e_phentsize] = packed
-        hdr.e_phnum += 1
-
-        return new_segment
-
-    def _shift_data(self, marker):
-        hdr = self.header
-        init_marker = marker
-        next_segment = [s for s in self.segments if init_marker <= s.header.p_offset <= init_marker + hdr.e_phentsize][0]
-        moved_segments = []
-        p_offset = next_segment.header.p_offset
-        while next_segment is not None:
-            moved_segments.append(next_segment)
-            marker = next_segment.header.p_offset + next_segment.header.p_filesz
-            p_offset += hdr.e_phentsize
-            try:
-                next_segment = [s for s in self.segments
-                                if marker <= s.header.p_offset <= marker + hdr.e_phentsize
-                                and s not in moved_segments][0]
-            except IndexError:
-                next_segment = None
-
-        moved_sections = []
-        next_section = [s for s in self.sections if init_marker <= s.header.sh_offset <= init_marker + hdr.e_phentsize][0]
-        sh_offset = next_section.header.sh_offset
-        while next_section is not None:
-            moved_sections.append(next_section)
-            marker = next_section.header.sh_offset + next_section.header.sh_size
-            sh_offset += hdr.e_phentsize
-            try:
-                next_section = [s for s in self.sections
-                                if marker <= s.header.sh_offset <= marker + hdr.e_phentsize
-                                and s not in moved_sections][0]
-            except IndexError:
-                next_section = None
-
-        max_end = init_marker
-        for segment in moved_segments:
-            seg_end = segment.header.p_offset + segment.header.p_filesz
-            max_end = seg_end if max_end < seg_end else max_end
-
-        for section in moved_sections:
-            sec_end = section.header.sh_offset + section.header.sh_size
-            max_end = sec_end if max_end < sec_end else max_end
-
-        self.data[init_marker + hdr.e_phentsize:max_end + hdr.e_phentsize] = self.data[init_marker:max_end]
-
-    def _shift_segments(self, marker):
-        hdr = self.header
-        next_segment = [s for s in self.segments if marker <= s.header.p_offset <= marker + hdr.e_phentsize][0]
-        moved_segments = []
-        while next_segment is not None:
-            moved_segments.append(next_segment)
-            marker = next_segment.header.p_offset + next_segment.header.p_filesz
-            next_segment.header.p_offset += hdr.e_phentsize
-            next_segment.header.p_vaddr += hdr.e_phentsize
-            try:
-                next_segment = [s for s in self.segments
-                                if marker <= s.header.p_offset <= marker + hdr.e_phentsize
-                                and s not in moved_segments][0]
-            except IndexError:
-                next_segment = None
-
-        # for segment in (sorted(moved_segments, key=lambda s: s.header.p_offset, reverse=True)):
-        #     self.data[segment.header.p_offset:segment.header.p_offset + segment.header.p_filesz] = segment.data
-
-    def _shift_sections(self, marker):
-        hdr = self.header
-        next_section = [s for s in self.sections if marker <= s.header.sh_offset <= marker + hdr.e_phentsize][0]
-        moved_sections = []
-        while next_section is not None:
-            moved_sections.append(next_section)
-            marker = next_section.header.sh_offset + next_section.header.sh_size
-            next_section.header.sh_offset += hdr.e_phentsize
-            next_section.header.sh_addr += hdr.e_phentsize
-            try:
-                next_section = [s for s in self.sections
-                                if marker <= s.header.sh_offset <= marker + hdr.e_phentsize
-                                and s not in moved_sections][0]
-            except IndexError:
-                next_section = None
 
     def _create_new_segment(self, size):
         """
@@ -629,34 +464,99 @@ class ELF:
         )
         return Segment(self._full_data, hdr.e_phnum, hdr.e_phoff, hdr.e_phentsize, header)
 
+    def _get_gap_idx(self, from_offset, size):
+        """ Find the lowest offset gap of null values of a specified size between sections/segments.
+
+        :param from_offset: Start offset to search from
+        :param size: Size in bytes of the gap to find
+        :return: A byte-offset of the lowest found gap between segments/sections large enough for use
+        """
+        # Create a dictionary of start/end offsets for all sections and segments within the binary
+        start_end_offsets = set(
+            [(x.header.p_offset, x.header.p_offset + x.header.p_filesz) for x in self.segments] +
+            [(x.header.sh_offset, x.header.sh_offset + x.header.sh_size) for x in self.sections]
+        )
+
+        not_within = []
+        for start, end in start_end_offsets:
+
+            # Ignore entities prior to where we're looking
+            if end < from_offset:
+                continue
+
+            # Remove those entries that are contained within other entries
+            if not self._are_values_within(start, end, start_end_offsets):
+                not_within.append((start, end))
+
+        # Extend elements that are overlapping
+        non_overlapping = self._extend_overlapping(not_within)
+
+        # Find the gaps
+        non_overlapping.sort(key=lambda x: x[0])
+        for start, end in non_overlapping:
+            index = non_overlapping.index((start, end))
+            closest = next(iter(sorted(
+                [(x, y) for x, y in non_overlapping[index:]
+                 if x >= end],
+                key=lambda x: x[0])), None)
+
+            # Ensure the gap is big enough, and the data contains null values
+            if closest is not None and closest[0] - end >= size \
+                    and self._full_data[end:end+size] == b"\0"*size:
+                return end
+
+        raise ValueError("No gap found")
+
+    @staticmethod
+    def _are_values_within(start, end, offsets):
+        """ Given a list of tuples containing start/end values, check whether the start and end parameter are contained
+        within any of those tuples, ie. the start->end range is contained within any other start->end range in the list.
+
+        Start and end values that are equivalent are ignored, due to the assumption that they are the same values.
+
+        :param start: Start of the range to check
+        :param end: End of the range to check
+        :param offsets: List of (start, end) tuples to check against
+        :return: True if start, end is contained within another tuple, otherwise false
+        """
+        for start_comp, end_comp in offsets:
+            if start == start_comp and end == end_comp:
+                continue
+            if start >= start_comp and end <= end_comp:
+                return False
+        return True
+
+    @staticmethod
+    def _extend_overlapping(offsets):
+        """ Given a set of start->end offset tuples, merge the set so that any overlapping or contiguous arrays are
+        merged into a single start->end value.
+
+        :param offsets: List of (start,end) tuple values
+        :return: List of (start,end) tuple values with no overlaps
+        """
+        offsets.sort(key=lambda x: x[0])
+        result = []
+        i = 0
+        while i < len(offsets) - 1:
+
+            # Get the initial start/end values
+            start, end = offsets[i]
+
+            # If the next start value falls on or before the current end value, extend the current end value
+            # and continue on to the next tuple
+            while i < len(offsets)-1 and end >= offsets[i+1][0]:
+                end = offsets[i+1][1]
+                i += 1
+
+            # Once they're not contiguous we can add the result to the list and keep going
+            result.append((start, end))
+            i += 1
+
+        return result
+
     @staticmethod
     def _extract_header_names(data):
         return [x for x in data.decode("utf-8").split('\0')]
-
-    def _set_headers(self):
-        """
-        Sets the program header and section header as properties within the ELF object.
-        """
-
-        # Program Header
-        if self.linking_method == ELFLinkingMethod.DYNAMIC:
-            self.phdr = [x for x in self.segments if x.header.p_type == ProgramType.PT_PHDR][0]
-        else:
-            # Create a new "ghost" segment containing the correct data, without adding it to the segment list
-            hdr = self.header
-            header = (
-                ProgramType.PT_PHDR,  # p_type
-                4,  # p_flags
-                hdr.e_phoff,  # p_offset
-                hdr.e_phoff,  # p_vaddr
-                hdr.e_phoff,  # p_paddr
-                hdr.e_phentsize * hdr.e_phnum,  # p_filesz
-                hdr.e_phentsize * hdr.e_phnum,  # p_memsz
-                8  # p_align
-            )
-            self.phdr = Segment(self._full_data, 0, hdr.e_phoff, hdr.e_phentsize, header)
-
-        # TODO: Section Header
 
 
 class Function:

@@ -17,7 +17,7 @@ class StructEntity(ABC):
         return self._data
 
     @property
-    def live_data(self):
+    def live_data_hex(self):
         data_start = self.offset + (self.ent_size * self.ent_idx)
         data_end = data_start + self.ent_size
         return ' '.join([f"{s:02x}" for s in self.data[data_start:data_end]])
@@ -128,7 +128,11 @@ class DynamicTableEntry(StructEntity):
     def __str__(self):
         return f"{self.d_tag}"
 
-    def shift(self, start_offset, end_offset, shift_by):
+    def shift(self, start_offset, end_offset, shift_by, virtual_base):
+
+        # Take into account non-pie binaries
+        start_offset += virtual_base
+        end_offset += virtual_base
 
         # Only the following list of tags contain pointers in their d_un property
         d_ptr_list = [x for x, y in DYNAMIC_TAG_UNION.items() if y == "d_ptr"]
@@ -391,7 +395,12 @@ class RelTableEntry(StructEntity):
         self._r_info = RelInfo(data, 0, offset + (ent_idx * ent_size) + 8)
         self.symbol = None
 
-    def shift(self, start_offset, end_offset, shift_by):
+    def shift(self, start_offset, end_offset, shift_by, virtual_base):
+
+        # Take into account non-pie binaries
+        start_offset += virtual_base
+        end_offset += virtual_base
+
         if self.r_info.r_type == RelocationType.R_X86_64_GLOB_DAT:
             if start_offset <= self.r_offset <= end_offset:
                 self.r_offset += shift_by

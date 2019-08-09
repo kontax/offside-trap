@@ -35,7 +35,7 @@
 16. Modify setters for section/segment subclasses and properties to update whenever changes are made, eg. if the symbol
     for a relocation changes, then the offsets, indexes and info may need to be modified.
     1. ~~Get working for dynamic~~
-    2. Get working for no-pie
+    2. ~~Get working for no-pie~~
     3. Get working for static
 17. ~~Rather than having static values for all the properties, look into having an overlay on top of the raw data, so
     that whenever any values are modified or viewed they're on the top of "live" data.~~
