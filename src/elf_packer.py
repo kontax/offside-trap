@@ -96,8 +96,8 @@ class ELFPacker:
         # Modify the entry to point into the new segment we've created, allowing for the text section to
         # become RWX using mprotect()
         new_entry = segment.header.p_vaddr + 8
-        print(f"[*] Entry moved from {hex(self.binary.e_entry)} to {hex(new_entry)}")
-        self.binary.e_entry = new_entry
+        print(f"[*] Entry moved from {hex(self.binary.header.e_entry)} to {hex(new_entry)}")
+        self.binary.header.e_entry = new_entry
 
         # Save the packed elf and set the executable bit
         print(f"[*] Saving file as {self.filename}.packed and making it executable")
