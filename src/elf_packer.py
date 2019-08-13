@@ -199,6 +199,7 @@ class ELFPacker:
         # Read the bytecode of the assembled loader
         loader_bytes = bytearray(open(output, 'rb').read())
         os.remove(output)
+        os.remove(f"{loader_file}.new")
         return loader_bytes
 
     def _write_new_preamble(self, index, function, decryption_addr):
