@@ -1,0 +1,442 @@
+{
+    "detection": [
+        {
+            "filename": "VirusShare_0b70f466a13e6e64afc32cf834b3e5ba",
+            "info": "HEUR:HackTool.Linux.Agent.c",
+            "original_value": 7,
+            "packed_value": 3,
+            "original_rate": 0.1346153846153846,
+            "packed_rate": 0.05172413793103448,
+            "benefit": 0.6157635467980296
+        },
+        {
+            "filename": "VirusShare_07a2c202f16f4fe2c92e768f460a1ddf",
+            "info": "Application.Linux.Generic.2020",
+            "original_value": 34,
+            "packed_value": 16,
+            "original_rate": 0.5862068965517241,
+            "packed_rate": 0.2857142857142857,
+            "benefit": 0.5126050420168067
+        },
+        {
+            "filename": "VirusShare_09e4b26df6b499a81453766c17226106",
+            "info": "Linux.DDOS.Flood.S",
+            "original_value": 34,
+            "packed_value": 25,
+            "original_rate": 0.576271186440678,
+            "packed_rate": 0.44642857142857145,
+            "benefit": 0.22531512605042014
+        },
+        {
+            "filename": "VirusShare_0c887f8a9cfd89bb4e3bc95645209a7c",
+            "info": "Gen:Variant.Backdoor.Linux.Tsunami.1",
+            "original_value": 34,
+            "packed_value": 29,
+            "original_rate": 0.576271186440678,
+            "packed_rate": 0.4915254237288136,
+            "benefit": 0.14705882352941174
+        },
+        {
+            "filename": "VirusShare_1085cf26d04985573e3419346108b62e",
+            "info": "Trojan.Linux.Generic.7268",
+            "original_value": 25,
+            "packed_value": 2,
+            "original_rate": 0.43103448275862066,
+            "packed_rate": 0.034482758620689655,
+            "benefit": 0.9199999999999999
+        },
+        {
+            "filename": "VirusShare_1211925c927bf4be476af26bc86d8d2e",
+            "info": "ELF:Portscan-B [Tool]",
+            "original_value": 16,
+            "packed_value": 4,
+            "original_rate": 0.2711864406779661,
+            "packed_rate": 0.06779661016949153,
+            "benefit": 0.75
+        },
+        {
+            "filename": "VirusShare_1226e436e5e830c9fbe58043fa4f9f3b",
+            "info": null,
+            "original_value": 0,
+            "packed_value": 0,
+            "original_rate": 0.0,
+            "packed_rate": 0.0,
+            "benefit": 0
+        },
+        {
+            "filename": "VirusShare_13a704a8c4d463523e7a8b49527f4178",
+            "info": "Gen:Variant.Backdoor.Linux.Gafgyt.1",
+            "original_value": 36,
+            "packed_value": 26,
+            "original_rate": 0.6101694915254238,
+            "packed_rate": 0.45614035087719296,
+            "benefit": 0.25243664717348935
+        },
+        {
+            "filename": "VirusShare_210e4243c8edc87499ce7caa4076d433",
+            "info": "Gen:Variant.Backdoor.Linux.Tsunami.1",
+            "original_value": 40,
+            "packed_value": 27,
+            "original_rate": 0.6779661016949152,
+            "packed_rate": 0.4909090909090909,
+            "benefit": 0.2759090909090909
+        },
+        {
+            "filename": "VirusShare_2417bfae4451de6eb0df96ee83c2e04e",
+            "info": "Trojan.Linux.Generic.1687",
+            "original_value": 29,
+            "packed_value": 5,
+            "original_rate": 0.5,
+            "packed_rate": 0.08771929824561403,
+            "benefit": 0.8245614035087719
+        },
+        {
+            "filename": "VirusShare_2d66f629e00042de8662b384b3c7c3bb",
+            "info": "Linux64/DDoS-Kaiten.gen.a",
+            "original_value": 20,
+            "packed_value": 28,
+            "original_rate": 0.36363636363636365,
+            "packed_rate": 0.4827586206896552,
+            "benefit": -0.32758620689655177
+        },
+        {
+            "filename": "VirusShare_45410ac23c53f010dea835236f7ac0e4",
+            "info": "TROJ_GEN.F04JC00BO19",
+            "original_value": 26,
+            "packed_value": 12,
+            "original_rate": 0.4406779661016949,
+            "packed_rate": 0.21052631578947367,
+            "benefit": 0.5222672064777328
+        },
+        {
+            "filename": "VirusShare_6139657db08c3e9d5d2399259e8eaaa0",
+            "info": "a variant of Linux/Flooder.H",
+            "original_value": 11,
+            "packed_value": 15,
+            "original_rate": 0.19298245614035087,
+            "packed_rate": 0.2727272727272727,
+            "benefit": -0.4132231404958677
+        },
+        {
+            "filename": "VirusShare_73731391d4ca2d964adf8a9aabe0cafe",
+            "info": "Gen:Variant.Backdoor.Linux.Tsunami.1",
+            "original_value": 38,
+            "packed_value": 22,
+            "original_rate": 0.6440677966101694,
+            "packed_rate": 0.3793103448275862,
+            "benefit": 0.411070780399274
+        },
+        {
+            "filename": "VirusShare_84f5b7a1ace62dcbec4a3af9b0cd803c",
+            "info": "Gen:Variant.Trojan.Linux.Flooder.1",
+            "original_value": 35,
+            "packed_value": 19,
+            "original_rate": 0.603448275862069,
+            "packed_rate": 0.3333333333333333,
+            "benefit": 0.44761904761904764
+        },
+        {
+            "filename": "VirusShare_8c5c1e62d737ffd0dc36b2c1252ddd75",
+            "info": "a variant of Linux/Ladvix.A",
+            "original_value": 7,
+            "packed_value": 2,
+            "original_rate": 0.12727272727272726,
+            "packed_rate": 0.03508771929824561,
+            "benefit": 0.7243107769423559
+        },
+        {
+            "filename": "VirusShare_c594d106d9a5ed883b945f030fe8d59a",
+            "info": "Trojan.Linux.Generic.9427",
+            "original_value": 28,
+            "packed_value": 6,
+            "original_rate": 0.4745762711864407,
+            "packed_rate": 0.10344827586206896,
+            "benefit": 0.7820197044334976
+        },
+        {
+            "filename": "VirusShare_d0a3ee24a69aba1b31a2373cc2a54127",
+            "info": "Trojan.Linux.Exploit.N",
+            "original_value": 33,
+            "packed_value": 10,
+            "original_rate": 0.6111111111111112,
+            "packed_rate": 0.1694915254237288,
+            "benefit": 0.7226502311248074
+        }
+    ],
+    "correctness": [
+        {
+            "filename": "addr2line",
+            "info": null,
+            "original_value": 11,
+            "packed_value": 10,
+            "original_rate": 1.0,
+            "packed_rate": 0.9090909090909091,
+            "benefit": 0.9090909090909091
+        },
+        {
+            "filename": "cxxfilt",
+            "info": null,
+            "original_value": 11,
+            "packed_value": 10,
+            "original_rate": 1.0,
+            "packed_rate": 0.9090909090909091,
+            "benefit": 0.9090909090909091
+        },
+        {
+            "filename": "elfedit",
+            "info": null,
+            "original_value": 6,
+            "packed_value": 6,
+            "original_rate": 1.0,
+            "packed_rate": 1.0,
+            "benefit": 1.0
+        },
+        {
+            "filename": "nm-new",
+            "info": null,
+            "original_value": 25,
+            "packed_value": 24,
+            "original_rate": 1.0,
+            "packed_rate": 0.96,
+            "benefit": 0.96
+        },
+        {
+            "filename": "objcopy",
+            "info": null,
+            "original_value": 40,
+            "packed_value": 39,
+            "original_rate": 1.0,
+            "packed_rate": 0.975,
+            "benefit": 0.975
+        },
+        {
+            "filename": "objdump",
+            "info": null,
+            "original_value": 23,
+            "packed_value": 22,
+            "original_rate": 1.0,
+            "packed_rate": 0.9565217391304348,
+            "benefit": 0.9565217391304348
+        },
+        {
+            "filename": "readelf",
+            "info": null,
+            "original_value": 25,
+            "packed_value": 21,
+            "original_rate": 1.0,
+            "packed_rate": 0.84,
+            "benefit": 0.84
+        },
+        {
+            "filename": "size",
+            "info": null,
+            "original_value": 9,
+            "packed_value": 9,
+            "original_rate": 1.0,
+            "packed_rate": 1.0,
+            "benefit": 1.0
+        },
+        {
+            "filename": "strings",
+            "info": null,
+            "original_value": 19,
+            "packed_value": 18,
+            "original_rate": 1.0,
+            "packed_rate": 0.9473684210526315,
+            "benefit": 0.9473684210526315
+        },
+        {
+            "filename": "strip-new",
+            "info": null,
+            "original_value": 23,
+            "packed_value": 21,
+            "original_rate": 1.0,
+            "packed_rate": 0.9130434782608695,
+            "benefit": 0.9130434782608695
+        }
+    ],
+    "speed": [
+        {
+            "filename": "addr2line",
+            "info": null,
+            "original_value": 0.12317527499908465,
+            "packed_value": 0.14199424400248972,
+            "original_rate": 0.12317527499908465,
+            "packed_rate": 0.14199424400248972,
+            "benefit": 1.1527820335984225
+        },
+        {
+            "filename": "cxxfilt",
+            "info": null,
+            "original_value": 0.09886841899970022,
+            "packed_value": 0.09622069199758698,
+            "original_rate": 0.09886841899970022,
+            "packed_rate": 0.09622069199758698,
+            "benefit": 0.9732196890685461
+        },
+        {
+            "filename": "elfedit",
+            "info": null,
+            "original_value": 0.03611825200277963,
+            "packed_value": 0.034162705998824094,
+            "original_rate": 0.03611825200277963,
+            "packed_rate": 0.034162705998824094,
+            "benefit": 0.9458571249847574
+        },
+        {
+            "filename": "nm-new",
+            "info": null,
+            "original_value": 0.24662634799460648,
+            "packed_value": 0.33159316900128033,
+            "original_rate": 0.24662634799460648,
+            "packed_rate": 0.33159316900128033,
+            "benefit": 1.3445163977716283
+        },
+        {
+            "filename": "objcopy",
+            "info": null,
+            "original_value": 0.4732443540069653,
+            "packed_value": 0.7459998899939819,
+            "original_rate": 0.4732443540069653,
+            "packed_rate": 0.7459998899939819,
+            "benefit": 1.5763524354333918
+        },
+        {
+            "filename": "objdump",
+            "info": null,
+            "original_value": 0.2974797579990991,
+            "packed_value": 0.51656212099806,
+            "original_rate": 0.2974797579990991,
+            "packed_rate": 0.51656212099806,
+            "benefit": 1.7364614132825278
+        },
+        {
+            "filename": "readelf",
+            "info": null,
+            "original_value": 0.18081953399814665,
+            "packed_value": 1.4397744950001652,
+            "original_rate": 0.18081953399814665,
+            "packed_rate": 1.4397744950001652,
+            "benefit": 7.962494223743119
+        },
+        {
+            "filename": "size",
+            "info": null,
+            "original_value": 0.11547654700007115,
+            "packed_value": 0.16569025299759232,
+            "original_rate": 0.11547654700007115,
+            "packed_rate": 0.16569025299759232,
+            "benefit": 1.4348389980650378
+        },
+        {
+            "filename": "strings",
+            "info": null,
+            "original_value": 0.2319638870048948,
+            "packed_value": 1.5160083139999188,
+            "original_rate": 0.2319638870048948,
+            "packed_rate": 1.5160083139999188,
+            "benefit": 6.535535912829089
+        },
+        {
+            "filename": "strip-new",
+            "info": null,
+            "original_value": 0.27606071999798587,
+            "packed_value": 0.42090603800170356,
+            "original_rate": 0.27606071999798587,
+            "packed_rate": 0.42090603800170356,
+            "benefit": 1.5246864458108147
+        }
+    ],
+    "size": [
+        {
+            "filename": "addr2line",
+            "info": null,
+            "original_value": 4855032,
+            "packed_value": 4860120,
+            "original_rate": 4855032,
+            "packed_rate": 4860120,
+            "benefit": 1.0010479848536529
+        },
+        {
+            "filename": "cxxfilt",
+            "info": null,
+            "original_value": 4804232,
+            "packed_value": 4806200,
+            "original_rate": 4804232,
+            "packed_rate": 4806200,
+            "benefit": 1.0004096388350938
+        },
+        {
+            "filename": "elfedit",
+            "info": null,
+            "original_value": 237888,
+            "packed_value": 243192,
+            "original_rate": 237888,
+            "packed_rate": 243192,
+            "benefit": 1.0222962066182406
+        },
+        {
+            "filename": "nm-new",
+            "info": null,
+            "original_value": 4880936,
+            "packed_value": 4885816,
+            "original_rate": 4880936,
+            "packed_rate": 4885816,
+            "benefit": 1.0009998082335028
+        },
+        {
+            "filename": "objcopy",
+            "info": null,
+            "original_value": 5424288,
+            "packed_value": 5432728,
+            "original_rate": 5424288,
+            "packed_rate": 5432728,
+            "benefit": 1.0015559645800518
+        },
+        {
+            "filename": "objdump",
+            "info": null,
+            "original_value": 7015656,
+            "packed_value": 7023736,
+            "original_rate": 7015656,
+            "packed_rate": 7023736,
+            "benefit": 1.0011517098329792
+        },
+        {
+            "filename": "readelf",
+            "info": null,
+            "original_value": 1311904,
+            "packed_value": 1318904,
+            "original_rate": 1311904,
+            "packed_rate": 1318904,
+            "benefit": 1.0053357562748493
+        },
+        {
+            "filename": "size",
+            "info": null,
+            "original_value": 4841048,
+            "packed_value": 4843768,
+            "original_rate": 4841048,
+            "packed_rate": 4843768,
+            "benefit": 1.00056186181174
+        },
+        {
+            "filename": "strings",
+            "info": null,
+            "original_value": 4840232,
+            "packed_value": 4843640,
+            "original_rate": 4840232,
+            "packed_rate": 4843640,
+            "benefit": 1.0007040984812299
+        },
+        {
+            "filename": "strip-new",
+            "info": null,
+            "original_value": 5424304,
+            "packed_value": 5432408,
+            "original_rate": 5424304,
+            "packed_rate": 5432408,
+            "benefit": 1.0014940165595438
+        }
+    ]
+}
