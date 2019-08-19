@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 
-import json
 import os
 from shutil import copyfile
 from subprocess import check_output, Popen, PIPE
 from elf_packer import ELFPacker
-from elf_parser import Function
 
 FUNCTION_LIST = {
     './addr2line {} -e test 0x400000': [

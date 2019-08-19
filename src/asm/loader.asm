@@ -160,11 +160,11 @@ encrypt:
 
     ; Calculate decryption function address
     lea rsi, [bin_offset]
-    sub rsi, [bin_offset]
+    sub rsi, [bin_offset]               ; Get the base address of the binary
     lea rdi, [decrypt]
     sub rdi, rsi                        ; Current address of decrypt
-    sub rdi, [rbx+ret_func]             ;
-    sub rdi, 13
+    sub rdi, [rbx+ret_func]             ; Calculate the address of the calling function
+    sub rdi, 13                         ; Offset within that function to load data into
 
     ; Replace offset and address within preamble
     pop rbx

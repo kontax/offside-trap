@@ -3,8 +3,8 @@ import stat
 from struct import unpack, pack
 from subprocess import check_output
 
-from elf_enums import ELFFileType
-from elf_parser import ELF
+from elf.enums import ELFFileType
+from elf.parser import ELF
 
 BYTES_TO_SAVE = 0xf
 TABLE_ENTRY_SIZE = 0x20
@@ -21,7 +21,7 @@ class ELFPacker:
         self.functions = None
 
         # If the binary is not position independent, it starts at this set offset
-        self._pie_offset = 0 if self.binary.e_type == ELFFileType.ET_DYN else 0x400000
+        self._pie_offset = 0 if self.binary.header.e_type == ELFFileType.ET_DYN else 0x400000
 
     def list_functions(self):
         """
@@ -69,12 +69,14 @@ class ELFPacker:
         print('[*] Encrypting functions')
         table = self._get_reference_table(function_list)
         table_size = table.count(',') + 1  # Counts the number of comma's (bytes) within the table
-        for function in function_list:
-            self._encrypt_function(function, encryption_key)
 
         # Create a segment to load the routines in
         print("[*] Creating new segment to load encryption/decryption routines in")
-        segment = self.binary.append_loadable_segment_3(table_size + 400)
+        segment = self.binary.append_loadable_segment(table_size + 400)
+
+        # Encrypt the functions
+        for function in function_list:
+            self._encrypt_function(function, encryption_key)
 
         # Set up and assemble the encryption/decryption routines
         loader = self._assemble_loader(table, segment, encryption_key)
@@ -82,22 +84,22 @@ class ELFPacker:
         # Add the call to encryption routine at the start of each function, ensuring the correct addresses/offsets
         # are used
         search_str = b"\x58\x68\xff\xff\xff\x0f\x68\xff\xff\xff\x0f"  # Bytecode at start of encryption function
-        decryption_addr = loader.find(search_str) + segment.p_vaddr
+        decryption_addr = loader.find(search_str) + segment.header.p_vaddr
         i = 0
         while i < len(function_list):
             self._write_new_preamble(i, sorted(function_list, key=lambda fn: fn.name)[i], decryption_addr)
             i += 1
 
         # Place the bytecode of the assembled loader into the newly created segment
-        start = segment.p_offset
+        start = segment.header.p_offset
         end = start + len(loader)
         self.binary.data[start:end] = loader
 
         # Modify the entry to point into the new segment we've created, allowing for the text section to
         # become RWX using mprotect()
-        new_entry = segment.p_vaddr + 8
-        print(f"[*] Entry moved from {hex(self.binary.e_entry)} to {hex(new_entry)}")
-        self.binary.e_entry = new_entry
+        new_entry = segment.header.p_vaddr + 8
+        print(f"[*] Entry moved from {hex(self.binary.header.e_entry)} to {hex(new_entry)}")
+        self.binary.header.e_entry = new_entry
 
         # Save the packed elf and set the executable bit
         print(f"[*] Saving file as {self.filename}.packed and making it executable")
@@ -177,15 +179,15 @@ class ELFPacker:
         with open(loader_file) as f:
             loader = f.read()
 
-        loader = loader.replace("#TEXT_START#", f"{hex(text_segment.p_vaddr)}") \
-            .replace("#TEXT_LEN#", f"{hex(text_segment.p_memsz)}") \
-            .replace("#OEP#", f"{hex(self.binary.e_entry)}") \
+        loader = loader.replace("#TEXT_START#", f"{hex(text_segment.header.p_vaddr)}") \
+            .replace("#TEXT_LEN#", f"{hex(text_segment.header.p_memsz)}") \
+            .replace("#OEP#", f"{hex(self.binary.header.e_entry)}") \
             .replace("#KEY#", f"{hex(key)}")
 
         # Load the default preamble bytes into the loader
         preamble = PREAMBLE_BYTECODE.copy()
         loader = loader.replace("#PREAMBLE#", ','.join(f'0x{x:02x}' for x in preamble)) \
-            .replace("#BIN_OFFSET#", str(hex(segment.p_vaddr)))
+            .replace("#BIN_OFFSET#", str(hex(segment.header.p_vaddr)))
 
         # Prepend the table string to the loader
         loader = loader.replace("#TABLE#", table)
@@ -199,6 +201,7 @@ class ELFPacker:
         # Read the bytecode of the assembled loader
         loader_bytes = bytearray(open(output, 'rb').read())
         os.remove(output)
+        os.remove(f"{loader_file}.new")
         return loader_bytes
 
     def _write_new_preamble(self, index, function, decryption_addr):
