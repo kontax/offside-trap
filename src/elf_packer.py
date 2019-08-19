@@ -69,12 +69,14 @@ class ELFPacker:
         print('[*] Encrypting functions')
         table = self._get_reference_table(function_list)
         table_size = table.count(',') + 1  # Counts the number of comma's (bytes) within the table
-        for function in function_list:
-            self._encrypt_function(function, encryption_key)
 
         # Create a segment to load the routines in
         print("[*] Creating new segment to load encryption/decryption routines in")
-        segment = self.binary.append_loadable_segment_3(table_size + 400)
+        segment = self.binary.append_loadable_segment(table_size + 400)
+
+        # Encrypt the functions
+        for function in function_list:
+            self._encrypt_function(function, encryption_key)
 
         # Set up and assemble the encryption/decryption routines
         loader = self._assemble_loader(table, segment, encryption_key)

@@ -247,10 +247,14 @@ class Section:
     def __str__(self):
         return f"{self.section_name} @ {hex(self.header.sh_offset)}"
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
         hdr = self.header
         overlap = _check_range_overlaps(start_offset, end_offset, hdr.sh_offset, hdr.sh_offset + hdr.sh_size)
-        if overlap is None:
+
+        # Ignore left-overlapping sections, as they're usually just touching the new one and can be ignored
+        if overlap is None or overlap == Overlap.LEFT:
+            if validate:
+                assert (self.data == self.live_data)
             return
 
         # Move the start only if it's after the start offset
@@ -259,15 +263,17 @@ class Section:
             hdr.sh_addr += shift_by
 
             # Ensure the data still matches, and update the data snapshot
-            assert (self.data == self.live_data)
+            if validate:
+                assert (self.data == self.live_data)
 
         # Otherwise increase the size
-        if overlap == Overlap.LEFT or overlap == Overlap.OVER:
+        if overlap == Overlap.OVER:
             hdr.sh_size += shift_by
 
             # Ensure the start and end values match what they did previously, and update the snapshot
-            assert (self.data[:shift_by] == self.live_data[:shift_by])
-            assert (self.data[-shift_by:] == self.live_data[-shift_by:])
+            if validate:
+                assert (self.data[:shift_by] == self.live_data[:shift_by])
+                assert (self.data[-shift_by:] == self.live_data[-shift_by:])
 
     def load_symbols(self, symbols):
         """
@@ -306,8 +312,8 @@ class DynamicSection(Section):
 
         self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.header.sh_offset)
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self.dynamic_table = create_dynamic_table(self._full_data, self.data, self.header.sh_offset)
         for entry in self.dynamic_table:
             entry.shift(start_offset, end_offset, shift_by, virtual_base)
@@ -328,8 +334,8 @@ class NoteSection(Section):
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.notes = parse_notes_data(self._full_data, self.data, self.header.sh_offset)
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self.notes = parse_notes_data(self._full_data, self.data, self.header.sh_offset)
 
 
@@ -353,8 +359,8 @@ class SymbolTableSection(Section):
         for symbol in self.symbol_table:
             symbol.populate_names(self.linked_section)
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self.symbol_table = parse_symbols_data(
             self._full_data, self.header.sh_offset, self.header.sh_size, self.header.sh_entsize, None)
 
@@ -396,8 +402,8 @@ class HashSection(Section):
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = HashTable(data, self.header.sh_offset)
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self.hash_table = HashTable(self._full_data, self.header.sh_offset)
 
     @staticmethod
@@ -453,8 +459,8 @@ class GnuHashSection(Section):
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self.hash_table = GnuHashTable(data, self.header.sh_offset, self.header.sh_size)
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self.hash_table = GnuHashTable(self._full_data, self.header.sh_offset, self.header.sh_size)
 
     @staticmethod
@@ -555,8 +561,8 @@ class RelocationSection(Section):
         super().__init__(data, section_number, e_shoff, e_shentsize, header_names)
         self._relocation_table = self._get_rel_table()
 
-    def shift(self, start_offset, end_offset, shift_by, virtual_base):
-        super().shift(start_offset, end_offset, shift_by, virtual_base)
+    def shift(self, start_offset, end_offset, shift_by, virtual_base, validate=True):
+        super().shift(start_offset, end_offset, shift_by, virtual_base, validate)
         self._relocation_table = self._get_rel_table()
 
         for entry in self._relocation_table:

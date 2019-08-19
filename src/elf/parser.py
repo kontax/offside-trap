@@ -120,7 +120,7 @@ class ELFHeader(StructEntity):
     @property
     def e_type(self):
         """ Gets or sets the object file type of the binary """
-        return ProgramType(self._get_value(1))
+        return ELFFileType(self._get_value(1))
 
     @e_type.setter
     def e_type(self, value):
@@ -271,14 +271,17 @@ class ELF:
         # Whether the ELF is statically or dynamically linked
         self._linking_method = ELFLinkingMethod(len([x for x in self.sections if x.section_name == '.interp']))
 
-        # Associate each symbol with the section it's contained within
+        # Link any sections that have the index set
         for s in self.sections:
-            s.load_symbols(self.symbols)
             s.set_linked_section(self.sections)
 
         for symtab in [s for s in self.sections if type(s) is SymbolTableSection]:
             symtab.populate_symbol_names()
             self.symbols.extend(symtab.symbol_table)
+
+        # Associate each symbol with the section it's contained within
+        for s in self.sections:
+            s.load_symbols(self.symbols)
 
         self._virtual_base = min(x.header.p_vaddr for x in self.segments if x.header.p_type == ProgramType.PT_LOAD)
 
@@ -334,13 +337,99 @@ class ELF:
         """
         return self.data[start_addr:end_addr]
 
-    def append_loadable_segment_3(self, size):
+    def append_loadable_segment(self, size):
+        """ Appends a PT_LOAD segment to the end of the binary, adding the required entry to the program header and
+        shifting any data that's affected over by the required number of bytes.
+
+        :param size: The size of the segment to append to the binary
+        :return: The new Segment from within the ELF file
+        """
+        # Check if we have enough space for the entire phdr
+        if self._has_pdhr_gap():
+            return self._move_phdr(size)
+
+        # If not - shift if over (unless the binary is static)
+        elif self.linking_method == ELFLinkingMethod.DYNAMIC:
+            return self._shift_sections(size)
+
+        # If neither option is viable, overwrite PT_NOTE
+        else:
+            return self._overwrite_notes(size)
+
+    def _has_pdhr_gap(self):
+        """ Check to see whether there is a large enough gap to fit in the entire program header before the second
+        PT_LOAD segment.
+
+        :return: True if there is a large enough gap, false otherwise
+        """
+        hdr = self.header
+        idx = hdr.e_phoff + hdr.e_phentsize
+        try:
+            gap_idx = self._get_gap_idx(idx, hdr.e_phentsize * (hdr.e_phnum + 1))
+
+            # If the gap is within or after the second load segment it is too far
+            second_load = sorted([s for s in self.segments
+                                  if s.header.p_type == ProgramType.PT_LOAD],
+                                 key=lambda x: x.header.p_offset)[1]
+
+            return gap_idx <= second_load.header.p_offset
+        except ValueError:
+            # No gap large enough found
+            return False
+
+    def _move_phdr(self, size):
+        """ Appends a PT_LOAD segment by moving the program header into a gap large enough to fit it.
+
+        :param size: The size of the segment to append to the binary
+        :return: The new Segment from within the ELF file
+        """
+        hdr = self.header
+
+        # Create space for the new segment in the program header, and find the closest gap to fill
+        idx = hdr.e_phoff
+        old_hdr_size = hdr.e_phentsize*hdr.e_phnum
+        gap_idx = self._get_gap_idx(idx, hdr.e_phentsize * (hdr.e_phnum + 1))
+
+        # Fill gap with old header and space for new entry
+        del self._full_data[gap_idx:gap_idx + old_hdr_size + hdr.e_phentsize]
+        self._full_data[gap_idx:gap_idx] = self._full_data[idx:idx+old_hdr_size] + b'\0'*hdr.e_phentsize
+        hdr.e_phoff = gap_idx
+        for s in self.segments:
+            s.header.offset = gap_idx
+
+        # Create the new segment
+        new_segment = self._create_new_segment(size)
+        self.segments.append(new_segment)
+        self._full_data[idx:idx+old_hdr_size] = b'\0'*old_hdr_size
+
+        # Move any affected offsets
+        self._shift_data_offsets(gap_idx, gap_idx + old_hdr_size + hdr.e_phentsize)
+
+        # Modify ELF header values
+        self._update_phdr(gap_idx)
+        hdr.e_phnum += 1  # TODO: This should possibly shift the PHDR size by e_phentsize (both segment and section)
+
+        return new_segment
+
+    def _update_phdr(self, idx):
+        """ If a Program Header segment is available, update the offsets so they point to the correct location starting
+        at the index supplied.
+
+        :param idx: The new index to point the Program Header to
+        """
+        phdr_seg = next(iter([s for s in self.segments if s.header.p_type == ProgramType.PT_PHDR]), None)
+        if phdr_seg is not None:
+            phdr_seg.header.p_offset = idx
+            phdr_seg.header.p_vaddr = idx + self.virtual_base
+            phdr_seg.header.p_filesz += self.header.e_phentsize
+            phdr_seg.header.p_memsz += self.header.e_phentsize
+
+    def _overwrite_notes(self, size):
         """
         Appends a new segment of the size specified, modifying any relevant pointers required.
 
-        Due to issues with modifying the program header, this function clobbers the NOTE segment/sections which reside
-        after the program header or interp section. If that segment isn't a NOTE segment, issues will occur when
-        running the binary.
+        This function clobbers the PT_NOTE segment/sections which reside after the program header or interp section. If
+        that segment isn't a PT_NOTE segment, issues will occur when running the binary.
 
         :param size: The minimum size to make the segment given required alignments
         :return: A new segment from within the ELF file
@@ -368,34 +457,36 @@ class ELF:
         if len(interp) == 0:
             return
 
+        # Offsets
+        phdr_start = hdr.e_phoff
+        phdr_end = phdr_start + hdr.e_phentsize*(hdr.e_phnum+1)
+
         # Get the interp
-        interp_seg = [s for s in self.segments if s.header.p_type == ProgramType.PT_INTERP][0]
-        interp_sym = [s for s in self.symbols if s.header.st_value == interp_seg.header.p_vaddr][0]
-
-        interp_seg.header.p_offset += hdr.e_phentsize
-        interp_seg.header.p_vaddr += hdr.e_phentsize
-        interp_seg.header.p_paddr += hdr.e_phentsize
-
+        interp_seg = interp[0]
         interp_sec = self.get_section('.interp')
-        interp_sec.header.sh_offset += hdr.e_phentsize
-        interp_sec.header.sh_addr += hdr.e_phentsize
 
-        interp_sym.header.st_value += hdr.e_phentsize
-
-        # Move the interp data over the notes section
-        start = interp_seg.header.p_offset
-        end = interp_seg.header.p_offset + interp_seg.header.p_filesz
+        # Shift the data
+        start = interp_seg.header.p_offset + hdr.e_phentsize
+        end = interp_seg.header.p_offset + interp_seg.header.p_filesz + hdr.e_phentsize
         assert (end - start == len(interp_seg.data))
         self.data[start:end] = interp_seg.data
 
-    def shift_sections(self, size):
+        # Shift the offsets
+        interp_seg.shift(phdr_start, phdr_end, hdr.e_phentsize)
+        interp_sec.shift(phdr_start, phdr_end, hdr.e_phentsize, self.virtual_base)
+
+    def _shift_sections(self, size):
+        """ Create a new segment and shift any affected data over into blank unused space within the binary
+
+        :param size: The size of the data being inserted into the binary
+        """
         hdr = self.header
 
         # Create space for the new segment in the program header, and find the closest gap to fill
         idx = hdr.e_phoff + hdr.e_phentsize * hdr.e_phnum
-        gap_idx = self._get_gap_idx(idx+hdr.e_phentsize, hdr.e_phentsize)
+        gap_idx = self._get_gap_idx(idx + hdr.e_phentsize, hdr.e_phentsize)
         gap_idx += hdr.e_phentsize  # The gap hasn't taken into account the shift just yet
-        self._full_data[idx:idx] = b'\0'*hdr.e_phentsize
+        self._full_data[idx:idx] = b'\0' * hdr.e_phentsize
 
         # Create the new segment
         new_segment = self._create_new_segment(size)
@@ -403,21 +494,30 @@ class ELF:
         hdr.e_phnum += 1  # TODO: This should possibly shift the PHDR size by e_phentsize (both segment and section)
 
         # Delete e_phentsize bytes at the first available null sequence that's large enough
-        del self._full_data[gap_idx:gap_idx+hdr.e_phentsize]
+        del self._full_data[gap_idx:gap_idx + hdr.e_phentsize]
 
         # Modify the offsets of all affected segments/sections, and the data within
+        self._shift_data_offsets(idx, gap_idx)
+
+    def _shift_data_offsets(self, start_idx, end_idx):
+        """ Loops through all sections and segments, and shifts any data that may be affected by a move between the
+        start and end index specified.
+
+        :param start_idx: Start index in bytes of the data affected
+        :param end_idx: End index in bytes of the data affected
+        """
+        hdr = self.header
+        first_load = [s for s in self.segments if s.header.p_type == ProgramType.PT_LOAD and s.header.p_offset == 0][0]
         for segment in self.segments:
 
             # The program header's data is expected to change, hence the false verification input
-            if segment.header.p_type == ProgramType.PT_PHDR:
-                segment.shift(idx, gap_idx, hdr.e_phentsize, False)
+            # TODO: Find a better way to check for the first PT_LOAD segment
+            if segment.header.p_type == ProgramType.PT_PHDR or segment == first_load:
+                segment.shift(start_idx, end_idx, hdr.e_phentsize, False)
                 continue
-            segment.shift(idx, gap_idx, hdr.e_phentsize)
-
+            segment.shift(start_idx, end_idx, hdr.e_phentsize)
         for section in self.sections:
-            section.shift(idx, gap_idx, hdr.e_phentsize, self.virtual_base)
-
-        return
+            section.shift(start_idx, end_idx, hdr.e_phentsize, self.virtual_base)
 
     def _create_new_segment(self, size):
         """
@@ -502,7 +602,7 @@ class ELF:
 
             # Ensure the gap is big enough, and the data contains null values
             if closest is not None and closest[0] - end >= size \
-                    and self._full_data[end:end+size] == b"\0"*size:
+                    and self._full_data[end:end + size] == b"\0" * size:
                 return end
 
         raise ValueError("No gap found")
@@ -544,8 +644,8 @@ class ELF:
 
             # If the next start value falls on or before the current end value, extend the current end value
             # and continue on to the next tuple
-            while i < len(offsets)-1 and end >= offsets[i+1][0]:
-                end = offsets[i+1][1]
+            while i < len(offsets) - 1 and end >= offsets[i + 1][0]:
+                end = offsets[i + 1][1]
                 i += 1
 
             # Once they're not contiguous we can add the result to the list and keep going
@@ -577,6 +677,7 @@ class Function:
     def __str__(self):
         return f"{self.name} @ 0x{self.start_addr:x}"
 
+
 # TODO: Consider turning these into tests
 def hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
@@ -589,17 +690,19 @@ def hash_table():
     x = ht.find('asdfasdf')
     print(x)
 
+
 def gnu_hash_table():
     filename = '/home/james/dev/offside-trap/test/bin/strings'
     elf = ELF(filename)
     ht = elf.get_section('.gnu.hash')
-    elf.shift_sections(400)
+    elf._shift_sections(400)
     sym = elf.sections[ht.header.sh_link].symbol_table
     for st in sym[ht.hash_table.symoffset:]:
         found = ht.find(st.symbol_name)
         print(f"{st.symbol_name}: {found}")
     x = ht.find('asdfasdf')
     print(x)
+
 
 def pack_file():
     filename = '/home/james/dev/offside-trap/test/source/test'
@@ -638,19 +741,23 @@ def pack_file():
 
     # String table section
 
-    elf.append_loadable_segment_3(400)
-    #elf.segments[6].dynamic_table[7].d_un = 1024
+    elf._overwrite_notes(400)
+    # elf.segments[6].dynamic_table[7].d_un = 1024
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)
+
 
 def pack_file_2():
     filename = '/home/james/dev/offside-trap/test/source/test'
     packed_filename = f"{filename}.packed"
     elf = ELF(filename)
-    elf.shift_sections(400)
+    #elf._shift_sections(400)
+    #elf._overwrite_notes(400)
+    elf._move_phdr(400)
 
     with open(packed_filename, 'wb') as f:
         f.write(elf.data)
+
 
 if __name__ == '__main__':
     pack_file_2()
